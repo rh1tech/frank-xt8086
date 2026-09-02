@@ -108,7 +108,25 @@ void cmos_init(void) {
     cmos.reg[CMOS_STATUS_D] = cmos.valid ? CMOS_D_VRT : 0x00;
 
     printf("[rtc] DS3231 %s", have ? "found" : "absent");
-    if (have && !trusted) printf(", oscillator stopped (battery?)");
+    if (have && !trusted) {
+        /*
+         * "Oscillator stopped" on its own does not say which of the two
+         * things went wrong, and they need different fixes: a clock that
+         * has simply never been set reads back near its power-on default,
+         * while one whose cell has gone flat reads back a time that was
+         * plausible when the power went away. Printing what the chip
+         * actually holds separates them without guessing.
+         */
+        rtc_time_t raw;
+        if (ds3231_read(&raw)) {
+            printf(", oscillator stopped; chip holds %04u-%02u-%02u %02u:%02u:%02u"
+                   " (%s)",
+                   raw.year, raw.mon, raw.day, raw.hour, raw.min, raw.sec,
+                   raw.year <= 2001u ? "never set" : "set once, then lost power");
+        } else {
+            printf(", oscillator stopped and unreadable");
+        }
+    }
     printf(" -- %04u-%02u-%02u %02u:%02u:%02u (%s)\n",
            t.year, t.mon, t.day, t.hour, t.min, t.sec,
            from_rtc ? "from the RTC" : "from the build time, free-running");

@@ -419,7 +419,21 @@ void __time_critical_func() vga_scanline_dma() {
         }
             default:
         case CGA_640x200x2: {
-            const uint32_t *__restrict cga_row = (uint32_t *) &VIDEORAM[__fast_mul(y >> 1, 80) + ((y & 1) << 13) & 0x3FFF];
+            /*
+             * vram_offset, like every other mode. Without it this showed
+             * page 0 for ever: a game that draws into a second page and
+             * points the CRTC start address at it got a screen that had
+             * never been drawn. Planet X3 does that once it leaves its
+             * title screen, which is why the title appeared and the game
+             * did not.
+             *
+             * The mask needs the parentheses too. `a + b & M` masks only
+             * b, so the wrap this looked like it was doing was never
+             * happening -- harmless while the offset was always zero, not
+             * harmless now.
+             */
+            const uint32_t *__restrict cga_row = (uint32_t *) &VIDEORAM[
+                    (mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(cga_row);
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
@@ -448,7 +462,8 @@ void __time_critical_func() vga_scanline_dma() {
          */
         case COMPOSITE_160x200x16: {
             const uint8_t *__restrict cga_row =
-                    &VIDEORAM[(__fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
+                    &VIDEORAM[(mc6845.vram_offset + __fast_mul(y >> 1, 80) +
+                               ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(cga_row);
 
             for (int x = 80; x--;) {
@@ -459,7 +474,8 @@ void __time_critical_func() vga_scanline_dma() {
             break;
         }
         case TGA_160x200x16: {
-            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[(__fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
+            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[
+                    (mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(tga_row);
             for (int x = 20; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
@@ -492,7 +508,8 @@ void __time_critical_func() vga_scanline_dma() {
         }
         case TGA_320x200x16: {
             //4bit buf, 32-bit reads
-            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[(__fast_mul(y >> 2, 160) + ((y & 3) << 13)) & 0x7FFF];
+            const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[
+                    (mc6845.vram_offset + __fast_mul(y >> 2, 160) + ((y & 3) << 13)) & 0x7FFF];
             __builtin_prefetch(tga_row);
             for (int x = 40; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
