@@ -7,6 +7,8 @@
 //   - Mouse: USB HID → Microsoft Serial Mouse protocol → COM1
 // ========================================
 
+#include <pico/time.h>
+
 #include "hid_app.h"
 #include <stdio.h>
 #include "tusb.h"
@@ -67,12 +69,54 @@ static void kbd_raw_key(int usb_code, int is_release) {
     kbd_add_sequence(sequence);
 }
 
+/*
+ * Typematic repeat.
+ *
+ * A real XT keyboard repeats by itself -- the controller in the keyboard
+ * holds the key down and re-sends the make code, and the BIOS just sees
+ * more of them. USB HID has no such thing: a held key produces one report
+ * and then silence until something changes, so a held key did nothing at
+ * all here. The host has to generate it.
+ *
+ * The IBM defaults: about half a second before the first repeat, then
+ * roughly ten a second. Only the most recent key repeats, which is what
+ * a real keyboard does too -- pressing a second key takes the repeat away
+ * from the first.
+ *
+ * Only make codes are sent, never breaks. That is exactly the stream a
+ * real keyboard produces, so nothing downstream needs to know.
+ */
+#define TYPEMATIC_DELAY_MS 500u
+#define TYPEMATIC_PERIOD_MS 92u   /* ~10.9 characters per second */
+
+static int             repeat_code = -1;
+static absolute_time_t repeat_due;
+
 static void kbd_raw_key_down(int usb_code) {
     kbd_raw_key(usb_code, 0);
+
+    // Modifiers arrive here as 0xE0..0xE7 from the modifier scan. Shift
+    // repeating on its own would be meaningless and would steal the
+    // repeat from the key being shifted.
+    if (usb_code < 0xE0) {
+        repeat_code = usb_code;
+        repeat_due  = make_timeout_time_ms(TYPEMATIC_DELAY_MS);
+    }
 }
 
 static void kbd_raw_key_up(int usb_code) {
     kbd_raw_key(usb_code, 1);
+
+    if (usb_code == repeat_code) repeat_code = -1;
+}
+
+// Called from keyboard_tick(), on core 0.
+static void typematic_task(void) {
+    if (repeat_code < 0) return;
+    if (absolute_time_diff_us(get_absolute_time(), repeat_due) > 0) return;
+
+    kbd_raw_key(repeat_code, 0);
+    repeat_due = make_timeout_time_ms(TYPEMATIC_PERIOD_MS);
 }
 
 static inline bool find_key_in_report(hid_keyboard_report_t const* report, uint8_t keycode) {
@@ -282,6 +326,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 
 void keyboard_tick(void) {
     tuh_task();
+    typematic_task();
     uint8_t xt_code;
     if (queue_try_remove(&keyboard_queue, &xt_code)) {
         handleScancode(xt_code);

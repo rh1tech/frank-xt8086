@@ -125,6 +125,36 @@ constexpr uint16_t textmode_palette[16] __attribute__((aligned(4))) = {
 
 enum graphics_mode_t graphics_mode;
 
+/*
+ * Is the cursor on this glyph row?
+ *
+ * R10 is not just a scanline. Bits 6-5 are the cursor mode -- 00 steady,
+ * 01 not displayed, 10 blink at 1/16 the field rate, 11 at 1/32 -- and
+ * only bits 4-0 are the start line. R11 is five bits too.
+ *
+ * Comparing the whole byte as a scanline broke hiding and sizing at once.
+ * The BIOS hides the cursor with INT 10h AH=01 and CH bit 5 set, which
+ * puts 0x20 in R10. Read as a number that is 32, larger than any end
+ * line, so the start > end wrap-around case fired and drew a cursor from
+ * row 0 to cursor_end -- a fat block, exactly where there was meant to be
+ * nothing. Any program setting a mode bit got a cursor of a size it never
+ * asked for, which is why it kept changing.
+ */
+__force_inline static bool cursor_on_line(const uint8_t glyph_line,
+                                          const uint8_t screen_y) {
+    if (likely(screen_y != mc6845.cursor_y)) return false;
+
+    // Mode 01 is "cursor non-display". Nothing else about R10 matters.
+    if (((mc6845.r.cursor_start >> 5) & 3u) == 1u) return false;
+
+    const uint8_t start = mc6845.r.cursor_start & 0x1Fu;
+    const uint8_t end   = mc6845.r.cursor_end   & 0x1Fu;
+
+    // start > end wraps on a real 6845 rather than being invalid.
+    return likely(start <= end) ? (glyph_line >= start && glyph_line <= end)
+                                : (glyph_line >= start || glyph_line <= end);
+}
+
 void __time_critical_func() vga_scanline_dma() {
     static uint32_t scanline = 0; // previously screen_line
 
@@ -183,11 +213,7 @@ void __time_critical_func() vga_scanline_dma() {
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
 
-            const bool is_cursor_line_active =
-                    (screen_y == mc6845.cursor_y) &&
-                    (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
-                         ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
-                         : (glyph_line >= mc6845.r.cursor_start || glyph_line <= mc6845.r.cursor_end));
+            const bool is_cursor_line_active = cursor_on_line(glyph_line, screen_y);
 
             // Предвычисление позиции курсора
             const int cursor_char_x = is_cursor_line_active ? mc6845.cursor_x : -1;
@@ -255,10 +281,7 @@ void __time_critical_func() vga_scanline_dma() {
             __builtin_prefetch(text_buffer_line);
             const bool is_cursor_line_active =
                     unlikely(mc6845.cursor_blink_state) &&
-                    (screen_y == mc6845.cursor_y) &&
-                    (likely(mc6845.r.cursor_start <= mc6845.r.cursor_end)
-                         ? (glyph_line >= mc6845.r.cursor_start && glyph_line <= mc6845.r.cursor_end)
-                         : (glyph_line >= mc6845.r.cursor_start || glyph_line <= mc6845.r.cursor_end));
+                    cursor_on_line(glyph_line, screen_y);
 
             // Предвычисление позиции курсора
             const int cursor_char_x = is_cursor_line_active ? mc6845.cursor_x : -1;
