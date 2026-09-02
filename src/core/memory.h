@@ -55,7 +55,7 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
 
     // Only reachable once the ceiling has been lowered for Hercules.
     if ((address - 0xB0000) < 0x8000) {
-        return *(uint16_t *)&VIDEORAM[address - 0xB0000];
+        return *(uint16_t *)&VIDEORAM[HERC_VRAM_BASE + (address - 0xB0000)];
     }
 
     if ((address - 0xC8000) < 8192) {
@@ -107,7 +107,7 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
 
     // Only reachable once the ceiling has been lowered for Hercules.
     if ((address - 0xB0000) < 0x8000) {
-        write_to(VIDEORAM, address - 0xB0000, data, bhe);
+        write_to(VIDEORAM, HERC_VRAM_BASE + (address - 0xB0000), data, bhe);
         return;
     }
 

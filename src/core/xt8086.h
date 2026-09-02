@@ -73,6 +73,21 @@
  * register counts in.
  */
 #define VIDEORAM_SIZE        (64 * 1024)   // Tandy/PC Jr compat
+
+/*
+ * Where the Hercules framebuffer sits inside VIDEORAM.
+ *
+ * Not zero, which is where the CGA window at B8000 starts. Sharing that
+ * offset put the framebuffer directly on top of the text page, and both
+ * are live at once: the BIOS wrote its boot screen and then ran a memory
+ * test through 0xB0000 that scribbled over it, and a game drawing in
+ * Hercules left its picture in the text buffer for DOS to find when it
+ * exited. Two separate cards, two separate areas.
+ *
+ * Only the Tandy 640x200x16 mode uses the whole 64K, and Hercules cannot
+ * be that card at the same time.
+ */
+#define HERC_VRAM_BASE       (32 * 1024)
 #define RAM_SIZE             (736 * 1024)
 #define UMB_SIZE             (128 * 1024)
 

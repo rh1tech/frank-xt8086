@@ -42,7 +42,15 @@ typedef struct __attribute__((__packed__)) {
 } MenuItem;
 
 // Версия структуры настроек (увеличивать при изменении структуры)
-#define SETTINGS_VERSION 2
+/*
+ * 3, because `hercules` was added to the struct below without this being
+ * raised. A saved file from before then loads one byte short: `hercules`
+ * takes the first character of the drive path, '/' -- which is 47, and
+ * therefore true. Hercules switched itself on for anyone with an older
+ * config, took 32K of memory, and pointed its framebuffer at the text
+ * page. Every field after it was off by one as well.
+ */
+#define SETTINGS_VERSION 3
 
 // Структура настроек проекта
 typedef struct {

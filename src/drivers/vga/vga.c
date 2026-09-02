@@ -623,8 +623,9 @@ void __time_critical_func() vga_scanline_dma() {
             // picture across half the screen.
             const uint32_t stride = (uint32_t)mc6845.r.h_displayed * 2u;
             const uint8_t *__restrict herc_row = &VIDEORAM[
-                    (mc6845.vram_offset + ((y & 3) << 13) + __fast_mul(y >> 2, stride))
-                    & (VIDEORAM_SIZE - 1)];
+                    HERC_VRAM_BASE +
+                    ((mc6845.vram_offset + ((y & 3) << 13) +
+                      __fast_mul(y >> 2, stride)) & 0x7FFFu)];
             __builtin_prefetch(herc_row);
 
             // Bit 7 is the leftmost pixel. Masked to a byte each: the
