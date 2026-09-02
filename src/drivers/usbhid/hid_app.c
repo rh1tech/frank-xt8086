@@ -8,6 +8,7 @@
 // ========================================
 
 #include "hid_app.h"
+#include <stdio.h>
 #include "tusb.h"
 #include "class/hid/hid.h"
 #include "pico/util/queue.h"
@@ -177,6 +178,29 @@ static void process_mouse_report(uint8_t const* report, uint16_t len) {
     uart_write_byte(packet[2]);
 }
 
+/*
+ * Device-level attach and detach.
+ *
+ * These fire for anything that enumerates, the hub included, which is
+ * what makes them worth having on a board where every device is behind
+ * one: they separate "nothing is reaching the host controller at all"
+ * from "the hub came up but the thing plugged into it did not".
+ *
+ * Only on plug and unplug, so the cost is nil.
+ */
+void tuh_mount_cb(uint8_t dev_addr) {
+    uint16_t vid = 0, pid = 0;
+    tuh_vid_pid_get(dev_addr, &vid, &pid);
+    // Address 1 is whatever enumerated first, which on this board is the
+    // hub itself; anything higher is a device behind it.
+    printf("[usb] device %u attached, VID:PID %04X:%04X%s\n",
+           dev_addr, vid, pid, dev_addr > 1 ? " (behind the hub)" : "");
+}
+
+void tuh_umount_cb(uint8_t dev_addr) {
+    printf("[usb] device %u detached\n", dev_addr);
+}
+
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {
     (void)desc_len;
     (void)desc_report;
@@ -186,16 +210,28 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
 
-    // Отслеживаем подключение USB мыши
+    static const char *proto[] = { "none (raw)", "keyboard", "mouse" };
+    printf("[usb] HID %u.%u mounted, VID:PID %04X:%04X, protocol %s\n",
+           dev_addr, instance, vid, pid,
+           itf_protocol < 3 ? proto[itf_protocol] : "?");
+
     if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
         usb_mouse_connected = true;
-        // printf("HID Mouse connected (VID:PID %04X:%04X)\n", vid, pid);
     }
 
-    (void)vid;
-    (void)pid;
+    // A keyboard that reports protocol "none" is in report mode and will
+    // send a vendor-specific layout this driver does not parse. Asking for
+    // boot protocol makes it send the six-key report process_kbd_report()
+    // expects. Silently skipping this is a keyboard that mounts and then
+    // does nothing, which is the failure that is hardest to see.
+    if (itf_protocol == HID_ITF_PROTOCOL_NONE) {
+        printf("[usb]   requesting boot protocol\n");
+        tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
+    }
 
-    tuh_hid_receive_report(dev_addr, instance);
+    if (!tuh_hid_receive_report(dev_addr, instance)) {
+        printf("[usb]   ERROR: could not arm the first report\n");
+    }
 }
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
@@ -218,6 +254,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 }
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
+    printf("[usb] HID %u.%u unmounted\n", dev_addr, instance);
     // Проверяем, была ли отключена мышь
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
     if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {

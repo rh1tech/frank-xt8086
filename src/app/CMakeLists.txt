@@ -81,12 +81,13 @@ option(BEEPER_SWEEP "Replace the boot chime with a frequency sweep" OFF)
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
-add_subdirectory(${SRC_ROOT}/drivers/fatfs    src/drivers/fatfs)
-add_subdirectory(${SRC_ROOT}/drivers/sdcard   src/drivers/sdcard)
-add_subdirectory(${SRC_ROOT}/drivers/graphics src/drivers/graphics)
-add_subdirectory(${SRC_ROOT}/drivers/vga      src/drivers/vga)
-add_subdirectory(${SRC_ROOT}/drivers/usbhid   src/drivers/usbhid)
-add_subdirectory(${SRC_ROOT}/drivers/psram    src/drivers/psram)
+add_subdirectory(${SRC_ROOT}/drivers/fatfs    drivers/fatfs)
+add_subdirectory(${SRC_ROOT}/drivers/sdcard   drivers/sdcard)
+add_subdirectory(${SRC_ROOT}/drivers/graphics drivers/graphics)
+add_subdirectory(${SRC_ROOT}/drivers/vga      drivers/vga)
+add_subdirectory(${SRC_ROOT}/drivers/usbhid   drivers/usbhid)
+add_subdirectory(${SRC_ROOT}/drivers/psram    drivers/psram)
+add_subdirectory(${SRC_ROOT}/drivers/rtc      drivers/rtc)
 add_subdirectory(${SRC_ROOT}/core             core)
 add_subdirectory(${SRC_ROOT}/ui               ui)
 

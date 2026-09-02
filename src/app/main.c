@@ -29,6 +29,7 @@
 #include "i8259.h"
 #include "i8253.h"
 #include "uart16550.h"
+#include "mc146818.h"
 
 #include "ff.h"
 #include "f_util.h"
@@ -140,7 +141,14 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     psram_init(PSRAM_CS_PIN, PSRAM_FREQ_HZ);
 
-    tusb_init();
+    // The CMOS clock, before core 1 exists: cmos_init() talks I2C, and
+    // once the 8086 is running nothing on this path may.
+    cmos_init();
+
+    // The host stack going up is worth one line: it separates "no
+    // keyboard plugged in" from "host mode never started", and those two
+    // look identical from the far side of a USB socket.
+    if (!tusb_init()) printf("[usb] tusb_init failed -- no host stack\n");
     keyboard_init();
     mouse_init();  // Microsoft Serial Mouse over the emulated COM1
 
@@ -328,6 +336,7 @@ bool handleScancode(const uint8_t ps2scancode) {
         // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             keyboard_tick();
+            cmos_tick();   // core 0 only: this is the half that does I2C
 
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;

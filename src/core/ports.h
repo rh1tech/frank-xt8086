@@ -31,6 +31,7 @@
 #include "i8272.h"
 #include "ide.h"
 #include "uart16550.h"
+#include "mc146818.h"
 #include "graphics.h"
 #include "hardware/pwm.h"
 // ============================================================================
@@ -107,6 +108,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
 
             return status;
         }
+        case 0x71: {
+            return cmos_read_data();
+        }
         case 0x81:
         case 0x82:
         case 0x83:
@@ -172,6 +176,14 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return;
         }
 
+        case 0x70: {
+            cmos_write_index(data);
+            return;
+        }
+        case 0x71: {
+            cmos_write_data(data);
+            return;
+        }
         case 0x81:
         case 0x82:
         case 0x83:
