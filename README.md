@@ -191,12 +191,21 @@ in this README came out of it.
 
 | | |
 |---|---|
-| ![SETUP](docs/screenshots/setup.png) | ![DR-DOS](docs/screenshots/drdos.png) |
-| SETUP, which auto-boots after four seconds | DR-DOS 8.1 off the microSD |
+| ![splash](docs/screenshots/splash.png) | ![SETUP](docs/screenshots/setup.png) |
+| The splash reports what was found, not what was configured | SETUP |
+| ![browser](docs/screenshots/browser.png) | ![DR-DOS](docs/screenshots/drdos.png) |
+| Picking an image, or ejecting | DR-DOS 8.1 off the microSD |
 
-SETUP auto-boots unconditionally. The prototype only did that in its
-serial-console build, which meant a release image on a board with no
-keyboard sat on the menu for ever.
+The splash holds for four seconds and then boots. Pressing a key during
+it opens SETUP; nothing else does, so a board with no keyboard attached
+always reaches the BIOS. The prototype only auto-booted in its
+serial-console build, so a release image on a keyboard-less board sat on
+the menu for ever.
+
+`DEL` on a drive row ejects it, and the file browser's first entry does
+the same. Before, `ESC` in the browser wrote an empty path into the
+setting and returned "cancelled" — so cancelling a browse silently
+ejected the drive, and that was the only way to eject at all.
 
 ## Toolchain
 

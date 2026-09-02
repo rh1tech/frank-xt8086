@@ -1,6 +1,7 @@
 // setup_min.c -- minimal, compact SETUP menu + file browser
 #include "setup_menu.h"
 #include "graphics.h"
+#include "ui_gfx.h"
 #include "state.h"
 #include <string.h>
 #include <stdio.h>
@@ -12,8 +13,8 @@
 #include "hid_app.h"
 #endif
 
-#define BROWSER_WIDTH  60
-#define BROWSER_HEIGHT 20
+// BROWSER_WIDTH/HEIGHT are gone: the window sizes itself from
+// BROWSER_MAX_VISIBLE now, so the two could not disagree.
 #define BROWSER_MAX_VISIBLE 14
 #define BROWSER_MAX_FILES 50
 #define CONFIG_FILE "/XT/config.sys"
@@ -32,17 +33,16 @@ settings_s settings = {
 
 /* --------- simplified menu description --------- */
 static const MenuItem menu_items[] = {
-    {"Features:",  .colors = {14, 1}},
-    {"  CPU Frequency:           %s", ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
-    {"  IBM PCjr/Tandy mode:     %s", ARRAY, &settings.tandy_enabled, nullptr, 1, {"NO", "YES"}},
+    {"Machine",         .colors = {UI_YELLOW, UI_WIN_BG}},
+    {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
+    {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {""},
-    {"Storage devices:",  .colors = {14, 1}},
-    {"  Floppy#1:               %s", STRING, settings.fda, nullptr, 255},
-    {"  Floppy #2:               %s", STRING, settings.fdb, nullptr, 255},
-    {"  Hard drive:              %s", STRING, settings.hdd, nullptr, 255},
-    {"At least Floppy #1 or HDD should be selected to bootup!", NONE, NULL, nullptr, .colors = {3, 1}},
+    {"Drives",          .colors = {UI_YELLOW, UI_WIN_BG}},
+    {"Floppy A:",        STRING, settings.fda, nullptr, 255},
+    {"Floppy B:",        STRING, settings.fdb, nullptr, 255},
+    {"Hard disk C:",     STRING, settings.hdd, nullptr, 255},
     {""},
-    {"  Save Settings And Exit  ", EXIT, .colors = {10, 1 }}
+    {"Save and exit",    EXIT, .colors = {UI_LIGHTGREEN, UI_WIN_BG}}
 };
 #define MENU_COUNT (sizeof(menu_items)/sizeof(menu_items[0]))
 
@@ -184,6 +184,25 @@ typedef struct {
     bool is_dir;
 } FE;
 
+/*
+ * Pick an image, or eject.
+ *
+ * Two changes from the prototype beyond the frame it draws in.
+ *
+ * ESC used to write an empty string into the caller's buffer and return
+ * false, which the caller ignored — so cancelling a browse silently
+ * ejected the drive, and that was the only way to eject at all. ESC now
+ * leaves the selection exactly as it was.
+ *
+ * Ejecting is a list entry instead. It is the first row, above "..", so
+ * it is visible rather than a key you have to know about; DEL on the
+ * SETUP row does the same thing for anyone who does know.
+ *
+ * Returns true if the selection changed.
+ */
+#define BROWSER_W 54
+#define BROWSER_H (BROWSER_MAX_VISIBLE + 4)
+
 bool file_browser(char *selected_path, const uint8_t out_len, const char *filter) {
     DIR dir;
     FILINFO fno;
@@ -192,10 +211,20 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
     uint8_t item_count = 0;
     uint8_t cur = 0, scroll = 0;
 
+    const int wx = (TEXTMODE_COLS - BROWSER_W) / 2;
+    const int wy = (TEXTMODE_ROWS - BROWSER_H) / 2 - 1;
+
     strcpy(current_path, "/XT");
 
     while (1) {
         item_count = 0;
+
+        // Row zero, always: eject. is_dir false and an empty name is the
+        // marker; nothing on a FAT volume can collide with it.
+        files[item_count].name[0] = '\0';
+        files[item_count].is_dir  = false;
+        item_count++;
+
         if (strcmp(current_path, "/") != 0) {
             strncpy(files[item_count].name, "..", sizeof(files[item_count].name));
             files[item_count].is_dir = true;
@@ -210,10 +239,12 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
         while (item_count < BROWSER_MAX_FILES) {
             if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == 0) break;
             if (fno.fname[0] == '.') continue;
-            bool isdir = (fno.fattrib & AM_DIR) != 0;
+            const bool isdir = (fno.fattrib & AM_DIR) != 0;
             if (!isdir && filter) {
                 const char *ext = strrchr(fno.fname, '.');
-                if (!ext || strcmp(ext, filter) != 0) continue;
+                // Case-insensitively: DOS tools write .IMG as often as .img
+                // and the prototype's strcmp hid half the images on a card.
+                if (!ext || strcasecmp(ext, filter) != 0) continue;
             }
             strncpy(files[item_count].name, fno.fname, sizeof(files[item_count].name) - 1);
             files[item_count].name[sizeof(files[item_count].name) - 1] = '\0';
@@ -222,70 +253,77 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
         }
         f_closedir(&dir);
 
-        if (item_count == 0) {
-            strncpy(files[0].name, "..", sizeof(files[0].name));
-            files[0].is_dir = true;
-            item_count = 1;
-        }
         if (cur >= item_count) cur = scroll = 0;
         if (scroll > cur) scroll = cur;
         if (cur >= scroll + BROWSER_MAX_VISIBLE) scroll = cur - BROWSER_MAX_VISIBLE + 1;
 
-        /* build title */
-        char title[BROWSER_WIDTH + 1];
-        if (strlen(current_path) > BROWSER_WIDTH - 4)
-            snprintf(title, sizeof(title), "...%s", current_path + strlen(current_path) - (BROWSER_WIDTH - 7));
+        char title[BROWSER_W];
+        const int room = BROWSER_W - 6;
+        if ((int)strlen(current_path) > room)
+            snprintf(title, sizeof title, "...%s", current_path + strlen(current_path) - room + 3);
         else
-            snprintf(title, sizeof(title), "%s", current_path);
+            snprintf(title, sizeof title, "%s", current_path);
 
-        draw_window(title, "ENTER: Select  ESC: Cancel", (TEXTMODE_COLS - BROWSER_WIDTH) / 2, (TEXTMODE_ROWS - BROWSER_HEIGHT) / 2, BROWSER_WIDTH,
-                    BROWSER_HEIGHT);
+        // Repaint the backdrop first. The browser is narrower than the
+        // SETUP window behind it, so without this the parent's left edge
+        // pokes out past it as a column of half-words.
+        ui_plasma(0, 0, 0, 0, 0);
+        ui_shadow(wx, wy, BROWSER_W, BROWSER_H);
+        ui_window(wx, wy, BROWSER_W, BROWSER_H, UI_BOX_DOUBLE, title,
+                  UI_ATTR_WINDOW, UI_ATTR_BORDER);
 
-        /* draw visible items */
         for (uint8_t i = 0; i < BROWSER_MAX_VISIBLE && (scroll + i) < item_count; ++i) {
-            uint8_t idx = scroll + i;
-            char line[BROWSER_WIDTH + 1];
-            if (files[idx].is_dir) snprintf(line, sizeof(line), "  [%s]", files[idx].name);
-            else snprintf(line, sizeof(line), "  %s", files[idx].name);
-            size_t len = strlen(line);
-            const size_t max_len = BROWSER_WIDTH - 4;
-            if (len > max_len) {
-                line[max_len] = '\0';
-                len = max_len;
-            }
-            while (len < max_len) line[len++] = ' ';
-            line[len] = '\0';
-            uint8_t fg = (idx == cur) ? 0 : (files[idx].is_dir ? 11 : 15);
-            uint8_t bg = (idx == cur) ? 15 : 1;
-            draw_text(line, (TEXTMODE_COLS - BROWSER_WIDTH) / 2 + 2, (TEXTMODE_ROWS - BROWSER_HEIGHT) / 2 + 3 + i, fg, bg);
+            const uint8_t idx = scroll + i;
+            const int     y   = wy + 2 + i;
+            const bool    sel = idx == cur;
+            const bool    eject = !files[idx].is_dir && !files[idx].name[0];
+
+            if (sel) ui_fill(wx + 1, y, BROWSER_W - 2, 1, ' ', UI_ATTR_SEL);
+
+            char line[BROWSER_W];
+            if (eject)                   snprintf(line, sizeof line, "%c Eject - no image", G_BULLET);
+            else if (files[idx].is_dir)  snprintf(line, sizeof line, "[%s]", files[idx].name);
+            else                         snprintf(line, sizeof line, "%s", files[idx].name);
+
+            const uint8_t attr = sel      ? UI_ATTR_SEL
+                               : eject    ? UI_ATTR(UI_YELLOW, UI_WIN_BG)
+                               : files[idx].is_dir ? UI_ATTR(UI_LIGHTCYAN, UI_WIN_BG)
+                                                   : UI_ATTR_WINDOW;
+            ui_text(wx + 2, y, line, attr);
         }
+
+        ui_scrollbar(wx + BROWSER_W - 1, wy + 1, wy + BROWSER_H - 2,
+                     item_count, BROWSER_MAX_VISIBLE, scroll, UI_ATTR_BORDER);
+
+        ui_hint_bar("ENTER select   UP/DOWN move   ESC cancel");
 
         const uint8_t scancode = wait_scancode();
 
-        if (scancode == 0x48) {
+        if (scancode == 0x48) {                       // UP
             if (cur > 0) cur--;
             if (cur < scroll) scroll = cur;
-        } // UP
-        else if (scancode == 0x50) {
+        } else if (scancode == 0x50) {                // DOWN
             if (cur < item_count - 1) {
                 cur++;
                 if (cur >= scroll + BROWSER_MAX_VISIBLE) scroll = cur - BROWSER_MAX_VISIBLE + 1;
             }
-        } // DOWN
-        else if (scancode == 0x1C) {
-            // ENTER
+        } else if (scancode == 0x1C) {                // ENTER
+            if (!files[cur].is_dir && !files[cur].name[0]) {
+                if (selected_path && out_len) selected_path[0] = '\0';
+                return true;                           // ejected
+            }
             if (files[cur].is_dir) {
                 if (strcmp(files[cur].name, "..") == 0) {
                     char *p = strrchr(current_path, '/');
                     if (p && p != current_path) *p = '\0';
                     else strcpy(current_path, "/");
                 } else {
-                    if (strcmp(current_path, "/") != 0) strncat(current_path, "/", sizeof(current_path) - strlen(current_path) - 1);
+                    if (strcmp(current_path, "/") != 0)
+                        strncat(current_path, "/", sizeof(current_path) - strlen(current_path) - 1);
                     strncat(current_path, files[cur].name, sizeof(current_path) - strlen(current_path) - 1);
                 }
                 cur = scroll = 0;
             } else {
-                // build path
                 if (selected_path && out_len) {
                     if (strcmp(current_path, "/") == 0)
                         snprintf(selected_path, out_len, "/%s", files[cur].name);
@@ -294,121 +332,156 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
                 }
                 return true;
             }
-        } else if (scancode == 0x1B) {
-            // ESC
-            if (selected_path && out_len) selected_path[0] = '\0';
+        } else if (scancode == 0x01) {                // ESC — cancel, change nothing
             return false;
         }
     }
 }
 
+#define SETUP_W 58
+#define SETUP_H ((int)MENU_COUNT + 4)
 
+// Where the value column starts, measured from the window's left edge.
+#define SETUP_VAL_X 20
 
-static void draw_menu_item(const MenuItem *item, uint8_t y, bool selected) {
-    char buf[TEXTMODE_COLS + 1];
-    uint8_t fg = item->colors.fg_color;
-    uint8_t bg = item->colors.bg_color;
+// The value a drive shows when nothing is loaded. Also what EJECT leaves
+// behind, so the two states are indistinguishable — which they are.
+#define NO_MEDIA "(empty)"
 
-    if (item->type != NONE) {
-        if (selected) {
-            fg = 0;
-            bg = 15;
-        } else if (item->type != EXIT) {
-            fg = 15;
-            bg = 1;
-        }
+static void draw_menu_item(const MenuItem *item, const int wx, const int y,
+                           const bool selected) {
+    const bool heading = item->type == NONE && item->text[0];
+    const int  lx      = wx + 2;
+
+    if (!item->text[0]) return;                       // spacer
+
+    if (heading) {
+        ui_text(lx - 1, y, item->text, UI_ATTR(item->colors.fg_color,
+                                               item->colors.bg_color));
+        return;
     }
+
+    // The highlight spans the full inner width, so a selected row reads as
+    // a bar rather than as a differently-coloured word.
+    const uint8_t attr = selected ? UI_ATTR_SEL : UI_ATTR_WINDOW;
+    if (selected) ui_fill(wx + 1, y, SETUP_W - 2, 1, ' ', attr);
+
+    ui_text(lx, y, item->text, attr);
+
+    const char *val = NULL;
+    char buf[48];
     if (item->type == ARRAY) {
-        const char *val = item->value_list[*(uint8_t *) item->value];
-        snprintf(buf, sizeof(buf), item->text, val);
+        val = item->value_list[*(uint8_t *)item->value];
     } else if (item->type == STRING) {
-        const char *v = (char *) item->value;
-        snprintf(buf, sizeof(buf), item->text, v && v[0] ? v : "<no image selected>");
-    } else {
-        snprintf(buf, sizeof(buf), "%s", item->text);
+        const char *v = (const char *)item->value;
+        if (v && v[0]) {
+            // Long paths are elided from the left: the filename is what
+            // identifies an image, and "/XT/dos/utils/" is not.
+            const int room = SETUP_W - SETUP_VAL_X - 3;
+            const int len  = (int)strlen(v);
+            if (len > room) snprintf(buf, sizeof buf, "...%s", v + len - room + 3);
+            else            snprintf(buf, sizeof buf, "%s", v);
+        } else {
+            snprintf(buf, sizeof buf, NO_MEDIA);
+        }
+        val = buf;
     }
-    draw_text(buf, 2, y, fg, bg);
+
+    if (val) {
+        const uint8_t vattr = selected ? UI_ATTR_SEL
+                            : item->type == STRING && !((const char *)item->value)[0]
+                              ? UI_ATTR_DIM : UI_ATTR_VALUE;
+        ui_text(wx + SETUP_VAL_X, y, val, vattr);
+    }
 }
 
 /* ----------------- public: setup_menu ----------------- */
 void setup_menu(void) {
-    settings_s backup = settings;
-    clear_screen();
+    const settings_s backup = settings;
 
-    char title[TEXTMODE_COLS + 1];
-    char footer[TEXTMODE_COLS + 1];
-    snprintf(title, sizeof(title), "RP8086 SETUP v1.0");
+    const int wx = (TEXTMODE_COLS - SETUP_W) / 2;
+    const int wy = (TEXTMODE_ROWS - SETUP_H) / 2 - 1;
 
-    uint8_t current = 1; // first editable item
+    uint8_t current = 1;    // first editable item
     bool running = true;
-    bool redraw = true;
-    bool first_input = true;
+    bool redraw  = true;
 
     while (running) {
         if (redraw) {
-            const MenuItem *mi = &menu_items[current];
-            const char *f = footers[mi->type];
-            snprintf(footer, sizeof(footer), "%s", f ? f : footers[NONE]);
-            draw_window(title, footer, 0, 0, TEXTMODE_COLS, TEXTMODE_ROWS);
+            // Full repaint, no skip rectangle. The skip exists so an
+            // animating backdrop does not flicker the window on top of
+            // it; these screens are static, and skipping the window's own
+            // shadow left fragments of the browser that had been drawn
+            // over the same rows.
+            ui_plasma(0, 0, 0, 0, 0);
+            ui_shadow(wx, wy, SETUP_W, SETUP_H);
+            ui_window(wx, wy, SETUP_W, SETUP_H, UI_BOX_DOUBLE, "SETUP",
+                      UI_ATTR_WINDOW, UI_ATTR_BORDER);
 
-            uint8_t y = 3;
-            for (uint8_t i = 0; i < MENU_COUNT; i++) {
-                draw_menu_item(&menu_items[i], y++, (i == current));
+            for (uint8_t i = 0; i < MENU_COUNT; i++)
+                draw_menu_item(&menu_items[i], wx, wy + 2 + i, i == current);
+
+            // The hint bar names only the keys that do something on the
+            // row you are actually on, which is the whole reason it is
+            // redrawn per selection rather than written once.
+            switch (menu_items[current].type) {
+                case ARRAY:
+                    ui_hint_bar("LEFT/RIGHT or ENTER change   UP/DOWN move   ESC discard");
+                    break;
+                case STRING:
+                    ui_hint_bar("ENTER browse   DEL eject   UP/DOWN move   ESC discard");
+                    break;
+                case EXIT:
+                    ui_hint_bar("ENTER save and boot   UP/DOWN move   ESC discard");
+                    break;
+                default:
+                    ui_hint_bar("UP/DOWN move   ESC discard");
+                    break;
             }
-
             redraw = false;
         }
 
-        // No timeout any more. Reaching SETUP at all now takes a
-        // deliberate keypress on the splash, so an operator who is here is
-        // here on purpose and booting out from under them is wrong. The
-        // "is anyone watching" question is answered once, earlier, in
-        // main().
-        (void)first_input;
+        // No timeout. Reaching SETUP at all now takes a deliberate keypress
+        // on the splash, so booting out from under someone who is already
+        // in it would be wrong; main() asks "is anyone there" once, before.
         const uint8_t scancode = wait_scancode();
-
         const MenuItem *mi = &menu_items[current];
-        if (scancode == 0x48) {
-            menu_move(&current, -1);
-            redraw = true;
-        } // UP
-        else if (scancode == 0x50) {
-            menu_move(&current, +1);
-            redraw = true;
-        } // DOWN
-        else if (scancode == 0x4B) {
-            if (mi->type == ARRAY) {
-                cycle_array(mi, -1);
-                redraw = true;
-            }
-        } // LEFT
-        else if (scancode == 0x4D) {
-            if (mi->type == ARRAY) {
-                cycle_array(mi, +1);
-                redraw = true;
-            }
-        } // RIGHT
-        else if (scancode == 0x1C) {
-            // ENTER
-            if (mi->type == EXIT) {
-                save_settings();
-                running = false;
-            } else if (mi->type == ARRAY) {
-                cycle_array(mi, +1);
-                redraw = true;
-            } else if (mi->type == STRING) {
-                // browse and store into the string buffer
-                if (file_browser((char *) mi->value, mi->max_value, ".img")) {
-                    // selection already written by browser into mi->value
+
+        switch (scancode) {
+            case 0x48: menu_move(&current, -1); redraw = true; break;   // UP
+            case 0x50: menu_move(&current, +1); redraw = true; break;   // DOWN
+
+            case 0x4B: if (mi->type == ARRAY) { cycle_array(mi, -1); redraw = true; } break;
+            case 0x4D: if (mi->type == ARRAY) { cycle_array(mi, +1); redraw = true; } break;
+
+            case 0x53:      // DEL — eject
+                if (mi->type == STRING) {
+                    ((char *)mi->value)[0] = '\0';
+                    redraw = true;
                 }
-                redraw = true;
-            }
-        } else if (scancode == 0x1B) {
-            // ESC
-            settings = backup;
-            running = false;
+                break;
+
+            case 0x1C:      // ENTER
+                if (mi->type == EXIT) {
+                    save_settings();
+                    running = false;
+                } else if (mi->type == ARRAY) {
+                    cycle_array(mi, +1);
+                    redraw = true;
+                } else if (mi->type == STRING) {
+                    file_browser((char *)mi->value, mi->max_value, ".img");
+                    redraw = true;
+                }
+                break;
+
+            case 0x01:      // ESC — discard
+                settings = backup;
+                running = false;
+                break;
+
+            default: break;
         }
     }
 
-    clear_screen();
+    ui_clear(UI_ATTR(UI_LIGHTGRAY, UI_BLACK));
 }

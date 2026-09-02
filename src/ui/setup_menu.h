@@ -23,7 +23,10 @@ typedef bool (*menu_callback_t)();
 
 // Структура элемента меню
 typedef struct __attribute__((__packed__)) {
-    const char* text;           // Текст пункта меню (может содержать %s для ARRAY/STRING)
+    const char* text;           // The label. Plain text: the value is drawn
+                                // separately, right-aligned, so the two
+                                // columns line up without every label
+                                // carrying its own hand-counted padding.
     enum menu_type_e type;      // Тип элемента
     void* value;                // Указатель на переменную (для ARRAY - uint8_t*, для STRING - char*)
     menu_callback_t callback;   // Callback функция (может быть nullptr)
