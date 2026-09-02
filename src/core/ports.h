@@ -32,6 +32,7 @@
 #include "ide.h"
 #include "uart16550.h"
 #include "mc146818.h"
+#include "adlib.h"
 #include "graphics.h"
 #include "hardware/pwm.h"
 // ============================================================================
@@ -120,6 +121,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x300 ... 0x308: {
             return ide_read(address);
         }
+        case 0x388: {
+            return adlib_status();
+        }
         case 0x3F4: case 0x3F5: {
             return i8272_readport(address);
         }
@@ -192,6 +196,10 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         }
         case 0x300 ... 0x308: {
             return ide_write(address, data);
+        }
+        case 0x388: case 0x389: {
+            adlib_write(address, data);
+            return;
         }
 
         case 0x3B0:

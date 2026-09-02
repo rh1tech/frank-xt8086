@@ -30,6 +30,7 @@
 #include "i8253.h"
 #include "uart16550.h"
 #include "mc146818.h"
+#include "adlib.h"
 
 #include "ff.h"
 #include "f_util.h"
@@ -70,6 +71,11 @@ static void beep(const uint slice, const uint32_t pwm_base_hz,
 // read the hardware report, short enough that a headless board is not
 // visibly stuck. Doubles as SETUP's "is anyone there" window.
 #define SPLASH_HOLD_MS 4000u
+
+// Sample rate for the synthesised audio. 44.1 kHz because the OPL2's own
+// output is band-limited well below it and core 0 has the headroom at
+// 504 MHz; drop it to 22050 first if anything starts missing frames.
+#define AUDIO_RATE_HZ 44100u
 
 static inline void pic_init(void) {
     // Настройка INTR как выход
@@ -144,6 +150,9 @@ bool handleScancode(const uint8_t ps2scancode) {
     // The CMOS clock, before core 1 exists: cmos_init() talks I2C, and
     // once the 8086 is running nothing on this path may.
     cmos_init();
+
+    // The OPL2 allocates, so it also belongs before core 1 starts.
+    adlib_init(AUDIO_RATE_HZ);
 
     // The host stack going up is worth one line: it separates "no
     // keyboard plugged in" from "host mode never started", and those two

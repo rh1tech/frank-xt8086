@@ -21,6 +21,7 @@ target_sources(xt8086_core INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/cpu_probe.c
         ${CMAKE_CURRENT_LIST_DIR}/state.c
         ${CMAKE_CURRENT_LIST_DIR}/../chipset/mc146818.c
+        ${CMAKE_CURRENT_LIST_DIR}/../chipset/adlib.c
 )
 
 target_include_directories(xt8086_core INTERFACE
@@ -35,6 +36,7 @@ target_link_libraries(xt8086_core INTERFACE
         graphics
         fatfs
         rtc
+        opl2
         usbhid
         psram
         pico_stdlib
