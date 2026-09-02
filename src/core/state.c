@@ -21,6 +21,11 @@
 
 IMPORT_BIN("roms/GLABIOS.ROM", BIOS);
 IMPORT_BIN("roms/ide_xt.bin", IDE);
+
+// Our own option ROM at D000:0000 -- the clock, and the hook point for
+// anything else that needs to run inside the guest. Built from
+// tools/rom/xtrom.asm by tools/rom/build.py.
+IMPORT_BIN("roms/xtrom.bin", XTROM);
 // IMPORT_BIN("roms/landmark.bin", BIOS);
 // IMPORT_BIN("roms/ruuds_diagnostic_rom_v5.4_8kb.bin", BIOS);
 // IMPORT_BIN("roms/checkit.img", FLOPPY);

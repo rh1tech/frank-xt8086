@@ -7,6 +7,7 @@
 // ============================================================================
 extern uint8_t BIOS[];
 extern uint8_t IDE[];
+extern uint8_t XTROM[];
 
 // Универсальная функция записи с поддержкой BHE (8/16-bit operations)
 __always_inline static void write_to(uint8_t *destination, const uint32_t address,
@@ -38,6 +39,13 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
 
     if ((address - 0xC8000) < 8192) {
         return *(uint16_t *)&IDE[address - 0xC8000];
+    }
+
+    // Our option ROM. GLaBIOS scans C000-FDFF on 2K boundaries for the
+    // 55 AA signature and far-calls what it finds, which is how this gets
+    // to run inside the guest without anyone installing a file.
+    if ((address - 0xD0000) < 2048) {
+        return *(uint16_t *)&XTROM[address - 0xD0000];
     }
 
     // if ((address - 0xD0000) < UMB_SIZE) {
