@@ -61,6 +61,12 @@ FW_CMD_BEGIN    equ 0
 FW_CMD_EXEC     equ 1
 
 BDA_SEG         equ 0040h
+
+; 40:F0 is the inter-application communication area, sixteen bytes the BIOS
+; reserves and nothing in a DOS machine uses. The displaced INT 10h vector
+; goes there because this code runs from ROM and has nowhere of its own to
+; put it.
+BDA_OLD_INT10   equ 00F0h
 BDA_TICKS       equ 006Ch               ; dword, ticks since midnight
 BDA_ROLLOVER    equ 0070h               ; byte, set when the count wrapped
 
@@ -150,6 +156,16 @@ init:
         mov     word [1Ah*4], int1a
         mov     [1Ah*4+2], cs
 
+        ; INT 10h, for one function only. See int10 for why.
+        mov     ax, BDA_SEG
+        mov     es, ax
+        mov     ax, [10h*4]
+        mov     [es:BDA_OLD_INT10], ax
+        mov     ax, [10h*4+2]
+        mov     [es:BDA_OLD_INT10+2], ax
+        mov     word [10h*4], int10
+        mov     [10h*4+2], cs
+
         ; INT 2Fh is deliberately NOT hooked here.
         ;
         ; It was, and it could never have worked: DOS installs its own
@@ -168,6 +184,60 @@ init:
         pop     cx
         pop     bx
         pop     ax
+        retf
+
+; ===========================================================================
+; INT 10h - mode 7 becomes mode 3, and nothing else is touched.
+;
+; Mode 7 is MDA text. GLaBIOS is an XT BIOS configured here for a CGA, and
+; asked for a mode that needs a monochrome card it does not believe is
+; present it writes a mismatched pair: the graphics CRTC table together
+; with 0x29, the MDA mode byte. The result is a display programmed for 40
+; columns of two-scanline characters, cleared to attribute 0. Black on
+; black, on a screen whose geometry is wrong as well.
+;
+; That is reached by ordinary software. Planet X3 asks for mode 7 on the
+; way into Hercules graphics and again on the way out, so leaving the game
+; returned DOS to an invisible prompt.
+;
+; This machine has one display. Presenting MDA text as CGA text is the
+; honest reading of that: the BIOS then does its own correct mode 3 setup,
+; the right CRTC table, attribute 7, and a screen that can be seen. The
+; Hercules graphics modes are unaffected, because software drives those
+; through the card's own registers and never through the BIOS.
+;
+; Everything else chains to the original handler untouched.
+; ===========================================================================
+int10:
+        cmp     ah, 00h
+        jne     .chain
+        cmp     al, 07h
+        jne     .chain
+        mov     al, 03h                 ; the one substitution
+
+.chain:
+        ; Hand over to the original with every register as the caller left
+        ; it, and with our INT frame still beneath: a far jump lets its
+        ; IRET return straight to the caller.
+        ;
+        ; Room for the far pointer is made first, then filled in through
+        ; BP once the registers used to fetch it have somewhere to be
+        ; saved. RETF then jumps to it with nothing of ours left on the
+        ; stack.
+        sub     sp, 4
+        push    bp
+        mov     bp, sp                  ; [bp+2] offset, [bp+4] segment
+        push    ds
+        push    ax
+        mov     ax, BDA_SEG
+        mov     ds, ax
+        mov     ax, [BDA_OLD_INT10]
+        mov     [bp+2], ax
+        mov     ax, [BDA_OLD_INT10+2]
+        mov     [bp+4], ax
+        pop     ax
+        pop     ds
+        pop     bp
         retf
 
 ; ===========================================================================
