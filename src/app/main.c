@@ -441,15 +441,25 @@ bool handleScancode(const uint8_t ps2scancode) {
                         {
                             /*
                              * Mode 6 on a composite monitor is not black
-                             * and white. The pixel clock is four times the
+                             * and white: the pixel clock is four times the
                              * NTSC subcarrier, so groups of four pixels
-                             * come out as colour, and a good deal of CGA
-                             * software was drawn expecting exactly that.
-                             * Which picture is right depends on what is
-                             * plugged in, so it is a setting.
+                             * come out as colour.
+                             *
+                             * Bit 2 of the mode register is how software
+                             * asks. It disables the colour burst, the BIOS
+                             * sets it for mode 6, and a program that wants
+                             * artifact colour clears it again -- Planet X3
+                             * writes 0x1A where the BIOS left 0x1E. So the
+                             * default follows the bit rather than a menu
+                             * option nobody knew to turn on.
                              */
-                            videomode = settings.composite ? COMPOSITE_160x200x16
-                                                           : CGA_640x200x2;
+                            const bool burst_on = !(cga.port3D8 & 4);
+                            const bool composite =
+                                    settings.composite == CGA_MONITOR_COMPOSITE ||
+                                    (settings.composite == CGA_MONITOR_AUTO && burst_on);
+
+                            videomode = composite ? COMPOSITE_160x200x16
+                                                  : CGA_640x200x2;
                             graphics_set_bgcolor(0);
                             graphics_set_palette(0, 0);
                             graphics_set_palette(1, (cga.port3D8 & 4) ? cga_palette[cga.port3D9 & 0xF] : cga_palette[15]);

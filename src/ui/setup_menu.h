@@ -50,19 +50,29 @@ typedef struct {
     uint8_t cpu_freq_index; // 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
 
     /*
-     * Which monitor mode 6 is being watched on. 0 = RGB, 1 = composite.
+     * Which monitor mode 6 is being watched on.
+     *   0 = Auto, 1 = RGB, 2 = Composite.
      *
-     * A setting rather than something inferred from the card, because on
-     * real hardware it is not a property of the card: the same 640x200x2
-     * output is black and white on an RGB monitor and sixteen artifact
-     * colours on a composite one. Software that relies on the artifacts
-     * has no way to say so.
+     * Auto follows the colour burst, which is how software actually asks.
+     * The BIOS sets mode 6 with bit 2 of the mode register high, meaning
+     * burst off; a program that wants artifact colour writes it low.
+     * Planet X3 does exactly that -- 0x1A where the BIOS left 0x1E -- and
+     * a composite monitor would then show colour. Following the bit is
+     * the faithful behaviour and needs no configuration.
+     *
+     * The forced settings stay because the bit says what the card is
+     * emitting, not what is plugged into it.
      */
     uint8_t composite;
     char fda[256];           // Floppy #1 filename (увеличено для длинных путей)
     char fdb[256];           // Floppy #2 filename
     char hdd[256];           // HDD filename
 } settings_s;
+
+// settings.composite
+#define CGA_MONITOR_AUTO      0
+#define CGA_MONITOR_RGB       1
+#define CGA_MONITOR_COMPOSITE 2
 
 extern settings_s settings;
 
