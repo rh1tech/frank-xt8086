@@ -85,6 +85,9 @@ void bus_pause(void) {
     const absolute_time_t deadline = make_timeout_time_ms(50);
     while (!bus_paused && absolute_time_diff_us(get_absolute_time(), deadline) > 0)
         tight_loop_contents();
+
+    if (!bus_paused)
+        printf("[bus] pause NOT acknowledged; core 1 is still live\n");
 }
 
 void bus_resume(void) { bus_pause_req = false; }

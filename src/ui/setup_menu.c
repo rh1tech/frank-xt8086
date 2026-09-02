@@ -205,10 +205,29 @@ typedef struct {
 #define BROWSER_H (BROWSER_MAX_VISIBLE + 4)
 
 bool file_browser(char *selected_path, const uint8_t out_len, const char *filter) {
-    DIR dir;
-    FILINFO fno;
-    FE files[BROWSER_MAX_FILES];
-    char current_path[256];
+    /*
+     * static, not automatic, and that is a bug fix rather than a style
+     * choice.
+     *
+     * Core 0 gets a 2 KB stack. A DIR and a FILINFO carry long-filename
+     * fields, fifty FE entries sit next to them, and FatFs then wants its
+     * own LFN working buffer on top -- several kilobytes in total, on two.
+     * Core 0 ran off the bottom of its stack and straight into core 1's,
+     * which lives directly below it, overwriting the exception frame of a
+     * bus handler parked mid-cycle. Core 1 then returned to a corrupted
+     * address and took a hard fault with INVSTATE, which is the hang on
+     * leaving the drive menu.
+     *
+     * It never showed up in SETUP because core 1 has not been launched
+     * yet there, so the same overflow scribbles on memory nobody owns.
+     *
+     * The browser is modal and cannot be re-entered, so static costs
+     * nothing and moves roughly two kilobytes off the stack.
+     */
+    static DIR dir;
+    static FILINFO fno;
+    static FE files[BROWSER_MAX_FILES];
+    static char current_path[256];
     uint8_t item_count = 0;
     uint8_t cur = 0, scroll = 0;
 
