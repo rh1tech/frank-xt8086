@@ -21,7 +21,7 @@ jobs:
     # web surface. This is the enforcement that actually applies to everyone.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history on a PR so every commit in the branch is inspected, not just the tip.
           fetch-depth: 0
@@ -60,7 +60,7 @@ jobs:
     needs: attribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install the Arm toolchain
         run: |

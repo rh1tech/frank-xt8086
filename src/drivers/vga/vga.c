@@ -1,10 +1,28 @@
 #include <hardware/dma.h>
 #include <hardware/irq.h>
 #include <hardware/pio.h>
-#include <arm_acle.h>
-
 #include "graphics.h"
 #include "state.h"
+
+/*
+ * Bit- and byte-reverse, without arm_acle.h.
+ *
+ * This used __rbit() and __rev() out of <arm_acle.h>. Arm GNU Toolchain
+ * 14 resolves __rbit to a builtin and inlines the one instruction; the
+ * gcc-arm-none-eabi 13.2 that Debian and Ubuntu ship does not define it
+ * for M-profile at all, so the compiler emitted a call to a function that
+ * exists in no library and the link failed. Only CI ever saw it, which is
+ * exactly what CI is for.
+ *
+ * RBIT is a single ARMv7-M instruction and the asm is shorter than the
+ * conditional include that would otherwise be needed. __builtin_bswap32
+ * is portable and compiles to REV.
+ */
+static inline uint32_t rbit32(const uint32_t v) {
+    uint32_t r;
+    __asm volatile ("rbit %0, %1" : "=r" (r) : "r" (v));
+    return r;
+}
 
 // VGA_CSYNC controls 7-pin composite sync vs 8-pin separate H/V sync.
 // Defined externally via CMake (-DVGA_CSYNC=1 / 0).
@@ -301,7 +319,7 @@ void __time_critical_func() vga_scanline_dma() {
             __builtin_prefetch(cga_row);
             //1bit buf, 32 pixels at once
             for (int x = 20; x--;) {
-                uint32_t dword = __rbit(__rev(*cga_row++)); // Fetch 32 pixels from CGA memory
+                uint32_t dword = rbit32(__builtin_bswap32(*cga_row++)); // Fetch 32 pixels from CGA memory
 
                 // Process 32 pixels in groups of 4 (8 iterations)
                 for (int i = 8; i--;) {
