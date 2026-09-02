@@ -26,6 +26,21 @@ static uint8_t      slot;        // which word of the register file is next
 static volatile bool pending;    // a request is waiting for core 0
 static volatile bool done;       // ...and core 0 has finished it
 
+/*
+ * Three answers, not two.
+ *
+ * Carry clear is success and carry set is a DOS error, but there is a
+ * third case: a call we do not implement. That must be *declined* so the
+ * TSR passes it down the chain rather than failing it -- another
+ * redirector may be below us, and a call we wrongly claim and botch
+ * corrupts data where a declined one merely moves on.
+ */
+#define ANSWER_OK      0
+#define ANSWER_ERROR   1
+#define ANSWER_DECLINE 2
+
+static uint8_t answer = ANSWER_DECLINE;
+
 // The register file as an array, so the port handler can index it rather
 // than switch on ten cases. The order is the stub's order and the two
 // must not drift.
@@ -91,7 +106,7 @@ uint16_t redirector_read(const uint16_t port, const bool word) {
             const uint16_t *r = reg_slot(slot);
             staging = r ? *r : 0;
         } else if (slot == 6) {
-            staging = regs.carry ? 1u : 0u;
+            staging = answer;
         } else {
             staging = 0xFFFFu;
         }
@@ -118,8 +133,9 @@ uint16_t redirector_read(const uint16_t port, const bool word) {
 #define DOS_INVALID_DRIVE   0x0F
 #define DOS_NO_MORE_FILES   0x12
 
-static void fail(const uint16_t code) { regs.ax = code; regs.carry = true; }
-static void ok(void)                  { regs.carry = false; }
+static void fail(const uint16_t code) { regs.ax = code; answer = ANSWER_ERROR; }
+static void ok(void)                  { answer = ANSWER_OK; }
+static void decline(void)             { answer = ANSWER_DECLINE; }
 
 /*
  * Read a byte out of the guest's memory.
@@ -172,6 +188,10 @@ void redirector_task(void) {
     pending = false;
 
     const uint8_t fn = regs.ax & 0xFFu;
+    answer = ANSWER_DECLINE;
+
+    printf("[redir] AX=%04X BX=%04X CX=%04X DX=%04X\n",
+           regs.ax, regs.bx, regs.cx, regs.dx);
 
     switch (fn) {
         case 0x00: fn_install_check(); break;
@@ -186,8 +206,10 @@ void redirector_task(void) {
              * DOS report an error the operator can see. Until each
              * function is written and tested, that is the honest answer.
              */
-            printf("[redir] AX=%04X not implemented\n", regs.ax);
-            fail(DOS_ACCESS_DENIED);
+            // Declined, and said out loud once per function so the gap is
+            // visible rather than inferred from DOS's behaviour.
+            printf("[redir] AX=%04X declined (not implemented)\n", regs.ax);
+            decline();
             break;
     }
 

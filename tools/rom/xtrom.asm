@@ -150,20 +150,14 @@ init:
         mov     word [1Ah*4], int1a
         mov     [1Ah*4+2], cs
 
-        ; INT 2Fh, hooked here at POST and deliberately not chained.
+        ; INT 2Fh is deliberately NOT hooked here.
         ;
-        ; DOS installs its own INT 2Fh handler later, saving whatever it
-        ; finds and chaining down to it for anything it does not answer --
-        ; so hooking first puts us at the bottom of the chain, which is
-        ; exactly where a redirector belongs. DOS routes its 11xx calls
-        ; down to us, and anything else that reaches us has already been
-        ; declined by everyone above, so an IRET is the correct answer.
-        ;
-        ; This is what makes a ROM-resident redirector possible at all:
-        ; there is nowhere writable in ROM to keep a displaced vector, and
-        ; being last in the chain means we never need one.
-        mov     word [2Fh*4], int2f
-        mov     [2Fh*4+2], cs
+        ; It was, and it could never have worked: DOS installs its own
+        ; INT 2Fh handler afterwards and does not pass AH=11h down the
+        ; chain, because a redirector is expected to hook *after* DOS and
+        ; sit above it. Reading the guest's vector table from the firmware
+        ; confirmed it -- INT 2Fh pointed into the DOS kernel, not here.
+        ; REDIR.COM does that job from AUTOEXEC.BAT instead.
         sti
 
         pop     es
@@ -276,113 +270,6 @@ int1a:
         call    cmos_write_bcd
         clc
         retf    2
-
-;============================================================================
-; INT 2Fh - the DOS network redirector, for drive H:.
-;
-; MAPDRIVE.COM flags H: in DOS's current-directory structure as a network
-; drive; from then on DOS routes every access to it here as AH=11h.
-; Nothing was answering, which is why the drive existed and could not be
-; opened.
-;
-; All the work happens in the firmware. This is the courier: it hands over
-; the register file, waits, and brings the answers back.
-;
-; The registers go out through an I/O port rather than a buffer in guest
-; memory, because the firmware can already read every byte of RAM -- the
-; register file is the one thing it cannot see, and there is nowhere
-; resident in ROM to build a buffer anyway.
-;============================================================================
-int2f:
-        cmp     ah, 11h
-        je      .redirect
-        iret                            ; not ours, and nothing is below us
-
-.redirect:
-        ; Marshalling needs AX and DX for the OUT itself, so the values
-        ; have to be somewhere else before it starts. The stack is that
-        ; somewhere, and it doubles as the place the results are written
-        ; back to, so the POPs at the end deliver them to the caller.
-        push    bp
-        push    es
-        push    ds
-        push    di
-        push    si
-        push    dx
-        push    cx
-        push    bx
-        push    ax
-        mov     bp, sp
-        ; [bp+00] AX   [bp+02] BX   [bp+04] CX   [bp+06] DX
-        ; [bp+08] SI   [bp+10] DI   [bp+12] DS   [bp+14] ES
-        ; [bp+16] BP   [bp+18] IP   [bp+20] CS   [bp+22] FLAGS
-
-        mov     dx, FW_CTRL
-        mov     al, FW_CMD_BEGIN
-        out     dx, al
-
-        mov     dx, FW_DATA
-        mov     cx, 8
-        xor     si, si
-.send:
-        mov     ax, [bp+si]
-        out     dx, ax
-        add     si, 2
-        loop    .send
-
-        ; SS:SP as the caller had them, so the firmware can walk the
-        ; caller's stack if a function needs to.
-        mov     ax, ss
-        out     dx, ax
-        mov     ax, bp
-        add     ax, 18                  ; undo our nine pushes
-        out     dx, ax
-
-        mov     dx, FW_CTRL
-        mov     al, FW_CMD_EXEC
-        out     dx, al
-
-        ; Spin until it is done. The firmware does the filesystem work on
-        ; its other core, so this is a wait on real disk I/O -- the same
-        ; wait a physical drive would have imposed, and the CPU has
-        ; nothing else to do with it.
-.wait:
-        in      al, dx
-        or      al, al
-        jz      .wait
-
-        ; Six words come back, over the saved copies, so the POPs below
-        ; hand them to the caller.
-        mov     dx, FW_DATA
-        mov     cx, 6
-        xor     si, si
-.recv:
-        in      ax, dx
-        mov     [bp+si], ax
-        add     si, 2
-        loop    .recv
-
-        ; The carry flag is the redirector's success/failure channel, and
-        ; IRET restores flags from the stack -- so it is set there, in the
-        ; caller's saved FLAGS, not in ours.
-        in      ax, dx
-        or      ax, ax
-        jz      .clear_cf
-        or      word [bp+22], 0001h
-        jmp     short .restore
-.clear_cf:
-        and     word [bp+22], 0FFFEh
-.restore:
-        pop     ax
-        pop     bx
-        pop     cx
-        pop     dx
-        pop     si
-        pop     di
-        pop     ds
-        pop     es
-        pop     bp
-        iret
 
 ;============================================================================
 ; CMOS. The NMI mask (bit 7 of the index port) is always left clear.

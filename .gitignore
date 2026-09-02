@@ -32,3 +32,7 @@ out/
 .idea/
 *.swp
 *~
+
+# A working copy of the card's contents, for building disk images. Several
+# hundred megabytes of someone else's data and not ours to version.
+sd/
