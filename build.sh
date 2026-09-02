@@ -26,7 +26,7 @@ if [ "$(git config core.hooksPath 2>/dev/null || true)" != ".githooks" ]; then
     echo "note: git hooks are not installed in this clone -- run 'make hooks'"
 fi
 
-BUILD_DIR="${BUILD_DIR:-app/build}"
+BUILD_DIR="${BUILD_DIR:-build}"
 BOARD="${BOARD:-frank_xt8086}"
 CPU_SPEED="${CPU_SPEED:-504}"
 PSRAM_SPEED="${PSRAM_SPEED:-166}"
@@ -41,7 +41,7 @@ echo "  board ${BOARD}   CPU ${CPU_SPEED} MHz   PSRAM ${PSRAM_SPEED} MHz"
 echo "  serial console ${SERIAL_CONSOLE}   beeper sweep ${BEEPER_SWEEP}"
 echo
 
-cmake -S app -B "${BUILD_DIR}" \
+cmake -S src/app -B "${BUILD_DIR}" \
       -DPICO_BOARD="${BOARD}" \
       -DCPU_SPEED="${CPU_SPEED}" \
       -DPSRAM_SPEED="${PSRAM_SPEED}" \

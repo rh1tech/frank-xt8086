@@ -27,7 +27,7 @@ build: ## Build the firmware
 	@./build.sh
 
 clean: ## Remove the build tree
-	@rm -rf app/build app/build-*
+	@rm -rf build build-*
 
 flash: ## Flash over USB (needs BOOTSEL)
 	@./flash.sh

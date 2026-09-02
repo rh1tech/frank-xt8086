@@ -1,7 +1,7 @@
 # xt8086 beta — RP2350B pin map
 
 Read off `xt8086_beta.kicad_pcb` (revision 1.01), not inherited from the
-prototype. `core/xt8086.h` is the machine-readable copy of this table and
+prototype. `src/core/xt8086.h` is the machine-readable copy of this table and
 `boards/frank_xt8086.h` is the SDK-facing one; if the three ever disagree,
 the PCB wins.
 
@@ -31,7 +31,7 @@ flip-flop's Q is the 8086's READY on pin 22. That is the synchroniser the
 8086 datasheet asks for, and it is why the PIO can drive READY with a
 side-set on any cycle boundary without violating setup time.
 
-`core/i8086_bus.pio` repeats GP20-GP27 as `.define` constants, because a
+`src/core/i8086_bus.pio` repeats GP20-GP27 as `.define` constants, because a
 PIO program cannot include a C header. The two lists have to agree.
 
 ## Everything above GP29
@@ -64,7 +64,7 @@ Note the two traps the prototype's pin map would have walked into here:
 
 - **GP45 was the prototype's "ISA" marker pin**, driven high on every bus
   cycle and low on an unmapped access. On this board it is the console's
-  RX line. The marker is now `bus_trace()` in `core/xt8086.h`, compiled
+  RX line. The marker is now `bus_trace()` in `src/core/xt8086.h`, compiled
   out unless `BUS_TRACE_PIN` names a pin.
 - **The video byte is VHRRGGBB, not VHBBGGRR.** Blue is the low pair.
   The driver already packed it that way — `graphics_set_palette()` builds
@@ -74,7 +74,7 @@ Note the two traps the prototype's pin map would have walked into here:
 ## Colour depth
 
 Two bits per channel, from a two-resistor ladder per channel into 75R.
-Sixty-four colours. The CGA palette in `core/state.h` is 24-bit and is
+Sixty-four colours. The CGA palette in `src/core/state.h` is 24-bit and is
 reduced by taking the top two bits of each component, which is why bright
 white and light grey are distinguishable but the six-bit result is not a
 faithful CGA reproduction.
@@ -92,7 +92,7 @@ Separate H and V sync, so `VGA_CSYNC` is 0. The prototype defaulted it to
 
 Flash (U7, W25Q128JVPIQ, 16 MB) on CS0, PSRAM (U8, ESP-PSRAM64H, 8 MB) on
 CS1 selected by GP47. `RAM[]` and `UMB[]` live in the PSRAM through the
-`.psram` section in `app/memmap.ld`; `VIDEORAM[]` stays in on-chip SRAM
+`.psram` section in `src/app/memmap.ld`; `VIDEORAM[]` stays in on-chip SRAM
 because the scanline DMA reads it every line.
 
 ## Debug

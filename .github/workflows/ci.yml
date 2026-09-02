@@ -79,13 +79,13 @@ jobs:
         env:
           PICO_SDK_PATH: /home/runner/pico-sdk
         run: |
-          cmake -S app -B app/build -DPICO_BOARD=frank_xt8086 -DCPU_SPEED=504
-          cmake --build app/build -j"$(nproc)"
+          cmake -S src/app -B build -DPICO_BOARD=frank_xt8086 -DCPU_SPEED=504
+          cmake --build build -j"$(nproc)"
 
       - name: Build (252 MHz, serial console on)
         env:
           PICO_SDK_PATH: /home/runner/pico-sdk
         run: |
-          cmake -S app -B app/build-252 -DPICO_BOARD=frank_xt8086 \
+          cmake -S src/app -B build-252 -DPICO_BOARD=frank_xt8086 \
                 -DCPU_SPEED=252 -DSERIAL_CONSOLE=ON
-          cmake --build app/build-252 -j"$(nproc)"
+          cmake --build build-252 -j"$(nproc)"

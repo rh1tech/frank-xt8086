@@ -7,11 +7,11 @@
  */
 
 /*
- * The one definition of everything core/state.h declares, plus the ROM
+ * The one definition of everything src/core/state.h declares, plus the ROM
  * images welded into the binary.
  *
  * The .incbin paths are relative to the repo root, which reaches the
- * assembler as an -I directory from app/CMakeLists.txt. Changing one
+ * assembler as an -I directory from src/app/CMakeLists.txt. Changing one
  * without the other produces an "unable to include" from as(1) rather
  * than anything that names a missing ROM.
  */

@@ -12,7 +12,7 @@
 ; GPIO assignments.
 ;
 ; A PIO program cannot include a C header, so these are a second copy of
-; the pin map in core/xt8086.h and have to be kept in step with it by
+; the pin map in src/core/xt8086.h and have to be kept in step with it by
 ; hand. The board's schematic is the authority for both; see docs/pinout.md.
 .define public AD_BUS_PINS       0  ; Начало шины AD0-AD15. out_base
 

@@ -7,12 +7,12 @@
  */
 
 /*
- * The state every emulated chip in chipset/ operates on.
+ * The state every emulated chip in src/chipset/ operates on.
  *
  * These are the registers of the parts an XT would have had as separate
  * packages — the PIC, the PIT, the DMA controller, the FDC, the UART, the
  * CRTC — plus the three memory arrays the 8086 actually addresses. They are
- * declared together because the port decoder in core/ports.h dispatches to
+ * declared together because the port decoder in src/core/ports.h dispatches to
  * all of them from one switch, and because a chip model is only ever the
  * behaviour: the bytes it acts on live here, in one place, so a debugger or
  * a future save-state has a single object to walk.
@@ -30,7 +30,7 @@
 #include "ff.h"
 
 // The memory the 8086 actually addresses. RAM and the upper-memory block
-// live in the external PSRAM (see drivers/psram) through the .psram linker
+// live in the external PSRAM (see src/drivers/psram) through the .psram linker
 // section; video RAM stays in on-chip SRAM, because the scanline DMA reads
 // it every line and a QSPI round trip per fetch is not a thing that ends
 // well.

@@ -10,7 +10,7 @@
  * Core 0 runs everything that can afford to be interrupted: DMA, the
  * video-mode follower, the keyboard, the console. Core 1 does nothing but
  * hold the 8086's bus, and it is the PIO and its two interrupt handlers in
- * core/cpu_bus.c that actually answer the CPU — core 1 only raises INTR.
+ * src/core/cpu_bus.c that actually answer the CPU — core 1 only raises INTR.
  */
 
 #include <hardware/pwm.h>

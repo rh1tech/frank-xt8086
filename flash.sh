@@ -16,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-UF2="${1:-app/build/frank-xt8086.uf2}"
+UF2="${1:-build/frank-xt8086.uf2}"
 
 if [[ ! -f "${UF2}" ]]; then
     echo "ERROR: ${UF2} not found. Run ./build.sh first." >&2

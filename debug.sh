@@ -19,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ELF="${ELF:-app/build/frank-xt8086.elf}"
+ELF="${ELF:-build/frank-xt8086.elf}"
 CFG="openocd.cfg"
 
 gdb_attach() {

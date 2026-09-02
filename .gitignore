@@ -2,7 +2,6 @@
 # regenerable and none of it belongs in history.
 build/
 build-*/
-app/build/
 cmake-build-*/
 
 # Build products, wherever they land.

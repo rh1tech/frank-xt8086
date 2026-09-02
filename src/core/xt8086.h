@@ -49,7 +49,7 @@
 #define PICO_CLOCK_SPEED     (CPU_SPEED_MHZ * MHZ)
 
 // Ceiling for the QSPI clock feeding the PSRAM. The QMI divides clk_sys
-// down to at most this; see drivers/psram.
+// down to at most this; see src/drivers/psram.
 #ifndef PSRAM_SPEED_MHZ
 #define PSRAM_SPEED_MHZ      166
 #endif
@@ -74,7 +74,7 @@
 //
 // GP0-GP29 belong to the 8086 (U5) and are not negotiable: AD0-AD15 on
 // GP0-GP15, A16-A19 on GP16-GP19, then the control signals in the order
-// the PIO program scans them. core/i8086_bus.pio repeats these as .define
+// the PIO program scans them. src/core/i8086_bus.pio repeats these as .define
 // constants because a PIO program cannot include a C header; the two lists
 // must agree, and the PIO file says so at the point it declares them.
 #define ALE_PIN          20             // Address Latch Enable, from the CPU

@@ -39,27 +39,35 @@ make hooks          # once, per clone
 | BIOS | GLaBIOS | 8 KB at 0xFE000, plus XTIDE Universal BIOS at 0xC8000 |
 
 Disk images are chosen in SETUP and stored on the card; see
-`ui/setup_menu.c`.
+`src/ui/setup_menu.c`.
 
 ## Layout
 
 ```
-boards/     the SDK board header — console and default SPI live here
-core/       the bus, the clock, the memory map, the port map, the state
-chipset/    the emulated parts: 8237, 8253, 8259, 8272, 16550, XT-IDE
-drivers/    video, graphics, microSD, FatFs, USB HID host, PSRAM
-ui/         SETUP, the file browser, the serial console
-app/        main.c, the linker script, the top-level CMakeLists
-roms/       the BIOS images welded into the binary
-docs/       the pin map, and the datasheets the models were written from
+src/
+  core/      the bus, the clock, the memory map, the port map, the state
+  chipset/   the emulated parts: 8237, 8253, 8259, 8272, 16550, XT-IDE
+  drivers/   video, graphics, microSD, FatFs, USB HID host, PSRAM
+  ui/        SETUP, the file browser, the serial console
+  app/       main.c, the linker script, the top-level CMakeLists
+boards/      the SDK board header — console and default SPI live here
+roms/        the BIOS images welded into the binary
+docs/        the pin map, and the datasheets the models were written from
+tools/       the attribution checker the hooks and CI share
 ```
 
-`core/` and `chipset/` are separated on one line: a chip model is only the
-behaviour, and the bytes it acts on live together in `core/state.h`. The
-port decoder in `core/ports.h` dispatches to all of them from one switch,
+`boards/` sits outside `src/` because it is configuration the build reads,
+not code the firmware compiles: `PICO_BOARD_HEADER_DIRS` points the SDK at
+it, and the SDK expects to find it at the repository root. `roms/` is
+outside for the same reason — those bytes reach the binary through an
+`.incbin` in `src/core/state.c`, resolved against the repository root.
+
+`src/core/` and `src/chipset/` are separated on one line: a chip model is only the
+behaviour, and the bytes it acts on live together in `src/core/state.h`. The
+port decoder in `src/core/ports.h` dispatches to all of them from one switch,
 which is why it needs them all in one place.
 
-Most of `core/` is header-only, and deliberately. `memory.h` and `ports.h`
+Most of `src/core/` is header-only, and deliberately. `memory.h` and `ports.h`
 are on the read and write path of every bus cycle and have to inline into
 the two PIO interrupt handlers in `cpu_bus.c`; a library boundary between
 them would be a function call per cycle at six megahertz.
@@ -70,7 +78,7 @@ them would be a function call per cycle at six megahertz.
 ./build.sh
 ```
 
-`app/CMakeLists.txt` is the top of the build — `cmake -S app -B app/build`
+`src/app/CMakeLists.txt` is the top of the build — `cmake -S src/app -B build`
 if you would rather drive it directly. Options, all settable as
 environment variables to `build.sh`:
 

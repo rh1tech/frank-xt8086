@@ -19,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ELF="${1:-app/build/frank-xt8086.elf}"
+ELF="${1:-build/frank-xt8086.elf}"
 
 OPENOCD_ARGS=(-f interface/cmsis-dap.cfg -c "adapter speed 5000" -f target/rp2350.cfg)
 
