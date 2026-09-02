@@ -90,6 +90,7 @@ add_subdirectory(${SRC_ROOT}/drivers/psram    drivers/psram)
 add_subdirectory(${SRC_ROOT}/drivers/rtc      drivers/rtc)
 add_subdirectory(${SRC_ROOT}/drivers/opl2     drivers/opl2)
 add_subdirectory(${SRC_ROOT}/drivers/audio    drivers/audio)
+add_subdirectory(${SRC_ROOT}/chipset/vgacard chipset/vgacard)
 add_subdirectory(${SRC_ROOT}/core             core)
 add_subdirectory(${SRC_ROOT}/ui               ui)
 
@@ -182,6 +183,7 @@ target_include_directories(frank-xt8086 PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${FW_R
 
 target_link_libraries(frank-xt8086 PRIVATE
         xt8086_core
+        vgacard
         xt8086_ui
         vga
         sdcard

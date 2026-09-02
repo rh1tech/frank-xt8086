@@ -218,7 +218,13 @@ int10:
         cmp     ah, 00h
         jne     .chain
         cmp     al, 13h
-        je      .mode13
+        je      .vgamode
+        cmp     al, 0Dh
+        je      .vgamode
+        cmp     al, 0Eh
+        je      .vgamode
+        cmp     al, 10h
+        je      .vgamode
 
         ; Any other mode set gives the 0xA0000 window back, so a program
         ; that leaves mode 13h stops being a VGA.
@@ -236,15 +242,15 @@ int10:
         jmp     short .chain
 
 ; ---------------------------------------------------------------------------
-; Mode 13h, 320x200 in 256 colours.
+; The EGA and VGA graphics modes: 0Dh, 0Eh, 10h and 13h.
 ;
 ; Handled here rather than chained, because GLaBIOS is an XT BIOS and has
-; never heard of it. The firmware is told which mode to provide, the BIOS
+; never heard of any of them. The firmware is told which mode to provide, the BIOS
 ; data area is filled in so that anything asking what mode this is gets a
 ; straight answer, and the framebuffer is cleared the way a real mode set
 ; would leave it.
 ; ---------------------------------------------------------------------------
-.mode13:
+.vgamode:
         push    ax
         push    cx
         push    di
@@ -252,12 +258,12 @@ int10:
         push    dx
 
         mov     dx, FW_VIDEO
-        mov     al, 13h
-        out     dx, al
+        out     dx, al                  ; AL is still the mode number
 
+        mov     ah, al                  ; keep it for the BIOS data area
         mov     ax, BDA_SEG
         mov     es, ax
-        mov     byte [es:0049h], 13h    ; current mode
+        mov     [es:0049h], ah          ; current mode
         mov     word [es:004Ah], 40     ; text columns, such as they are
         mov     word [es:004Ch], 0      ; page size
         mov     word [es:004Eh], 0      ; page offset

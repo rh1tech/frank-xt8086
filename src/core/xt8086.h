@@ -72,7 +72,7 @@
  * It is also exactly four 16K pages, which is the unit the Tandy page
  * register counts in.
  */
-#define VIDEORAM_SIZE        (128 * 1024)  // Tandy needs 64K, VGA another 64K
+#define VIDEORAM_SIZE        (64 * 1024)   // Tandy 640x200x16 is the largest user
 
 /*
  * Where the Hercules framebuffer sits inside VIDEORAM.
@@ -89,15 +89,6 @@
  */
 #define HERC_VRAM_BASE       (32 * 1024)
 
-/*
- * Where mode 13h's framebuffer lives inside VIDEORAM.
- *
- * Above everything else, because Tandy's 640x200x16 already claims the
- * first 64K and Hercules sits inside that range. A VGA and a Tandy cannot
- * be the same card, but keeping them apart costs only address space,
- * which there is plenty of.
- */
-#define VGA_VRAM_BASE        (64 * 1024)
 #define RAM_SIZE             (736 * 1024)
 #define UMB_SIZE             (128 * 1024)
 

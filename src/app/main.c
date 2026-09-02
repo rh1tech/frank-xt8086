@@ -39,6 +39,7 @@
 #include "f_util.h"
 #include "console.h"
 #include "memory.h"
+#include "vgacard.h"
 #include "setup_menu.h"
 extern cga_s cga;
 extern mc6845_s mc6845;
@@ -287,6 +288,9 @@ bool handleScancode(const uint8_t ps2scancode) {
     // screen is up before anything can go wrong, so a failure is something
     // you can read.
     graphics_init();
+
+    // The EGA/VGA card. Idle until something programs it.
+    vgacard_init();
     for (int i = 0; i < 16; i++) {
         graphics_set_palette(i, cga_palette[i]);
     }
@@ -457,6 +461,26 @@ bool handleScancode(const uint8_t ps2scancode) {
             next_frame = delayed_by_us(next_frame, 16666);
             mc6845.cursor_blink_state = frame_counter++ >> 4 & 1;
 
+            /*
+             * Re-read the card once a frame. The start address moves as
+             * software scrolls, so this cannot be done only on a mode
+             * change: a picture that scrolls would sit still.
+             */
+            vgacard_get_frame(&vga_frame);
+
+            /*
+             * A change of card mode has to drive the selection below, and
+             * nothing else would: that block runs when a CGA port is
+             * written, and programming the EGA touches none. Without this
+             * the card sat correctly in mode 0Dh while the display stayed
+             * in text.
+             */
+            static int last_submode;
+            if (vga_frame.submode != last_submode) {
+                last_submode = vga_frame.submode;
+                cga.updated = true;
+            }
+
             console_task(videomode);
         }
 
@@ -484,8 +508,20 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * describes it, and the card the guest thinks it is
                  * driving is not the one the rest of this decides.
                  */
-                if (settings.vga && cga.vga_mode_request == 0x13) {
-                    videomode = VGA_320x200x256;
+                if (settings.vga && vga_frame.submode) {
+                    // The card knows what it was programmed for; width and
+                    // height come from its own CRTC rather than the mode
+                    // number, so a program that adjusts the geometry gets
+                    // what it asked for.
+                    if (vga_frame.submode == 3)
+                        videomode = VGA_320x200x256;
+                    else if (vga_frame.width <= 320)
+                        videomode = EGA_320x200x16x4;
+                    else if (vga_frame.height > 200)
+                        videomode = EGA_640x350x16x4;
+                    else
+                        videomode = EGA_640x200x16x4;
+
                     if (videomode != old_videomode) {
                         printf("Videomode %i\n", videomode);
                         graphics_set_mode(videomode);

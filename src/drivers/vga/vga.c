@@ -5,6 +5,7 @@
 #include <hardware/pio.h>
 #include "graphics.h"
 #include "state.h"
+#include "vgacard.h"
 
 /*
  * Where the text modes fetch characters from.
@@ -163,6 +164,41 @@ static uint16_t palette[256] __attribute__((aligned(4)));
 #define COMPOSITE_SATURATION 1.5f
 
 static uint32_t composite_quad[16] __attribute__((aligned(4)));
+
+/*
+ * EGA planar, from murm386.
+ *
+ * The card's memory keeps the four planes interleaved a byte at a time,
+ * so one 32-bit fetch carries all four bits of eight pixels -- but
+ * scrambled: plane n's bit for pixel p sits in byte n, bit 7-p. Turning
+ * that into eight nibbles is what the lookup table is for. spread8 takes
+ * a byte and spaces its bits out four apart; OR the four planes together
+ * with one, two and three bits of shift and eight pixels fall out in
+ * order, most significant first.
+ *
+ * Doing it a bit at a time would be thirty-two shifts a word. This is
+ * four loads and three ORs.
+ */
+static uint32_t spread8_lut[256];
+
+static void build_spread8_lut(void) {
+    for (int i = 0; i < 256; i++) {
+        uint32_t v = 0;
+        for (int b = 0; b < 8; b++)
+            if (i & (1 << b)) v |= 1u << (b * 4);
+        spread8_lut[i] = v;
+    }
+}
+
+__force_inline static uint32_t ega_pack8(const uint32_t planes) {
+    return  spread8_lut[ planes        & 0xFFu]
+         | (spread8_lut[(planes >>  8) & 0xFFu] << 1)
+         | (spread8_lut[(planes >> 16) & 0xFFu] << 2)
+         | (spread8_lut[ planes >> 24        ] << 3);
+}
+
+// Filled once a frame from the card; see vgacard_get_frame().
+vgacard_frame_t vga_frame;
 
 static void build_composite_palette(void) {
     const float hue = COMPOSITE_HUE_DEG * (float)M_PI / 180.0f;
@@ -666,22 +702,23 @@ void __time_critical_func() vga_scanline_dma() {
             break;
         }
         /*
-         * Mode 13h. One byte a pixel, 320 across, no interleave and no
-         * planes -- the easiest memory layout of any mode here.
-         *
-         * Each source pixel becomes two on screen, which is what the
-         * palette entries already are: the colour byte is held in both
-         * halves of a 16-bit word, so one entry is one doubled pixel and
-         * two of them fill a word.
+         * Mode 13h, from the card. Chain-4 puts four consecutive pixels
+         * in the four planes of one word, so a single fetch is four
+         * pixels in order and no unpacking is needed at all.
          */
         case VGA_320x200x256: {
-            const uint8_t *__restrict row = &VIDEORAM[VGA_VRAM_BASE + __fast_mul(y, 320)];
-            __builtin_prefetch(row);
+            const uint32_t stride = vga_frame.line_offset > 0
+                    ? (uint32_t)vga_frame.line_offset * 2u : 80u;
+            uint32_t offset = vga_frame.start_addr + (uint32_t)y * stride;
+            offset &= 0xFFFFu;
 
-            for (int x = 160; x--;) {
-                const uint32_t a = palette[*row++];
-                const uint32_t b = palette[*row++];
-                *scanline_output_32++ = a | (b << 16);
+            const uint32_t *__restrict src = vgacard_planes() + offset;
+            for (int i = 0; i < 80; i++) {
+                const uint32_t px = src[i];
+                *scanline_output_32++ = palette[ px        & 0xFF] |
+                                        (uint32_t)palette[(px >>  8) & 0xFF] << 16;
+                *scanline_output_32++ = palette[(px >> 16) & 0xFF] |
+                                        (uint32_t)palette[ px >> 24        ] << 16;
             }
             break;
         }
@@ -817,6 +854,7 @@ static void configure_vga_dma(void) {
 
 void graphics_init() {
     build_composite_palette();
+    build_spread8_lut();
 
     // --- initialize PIO ---
     // On RP2350B

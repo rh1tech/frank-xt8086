@@ -39,6 +39,8 @@ extern cga_s cga;   // state.c; the Tandy page register lives in it
  */
 extern uint32_t ram_limit;
 
+#include "vgacard.h"
+
 // ============================================================================
 // Memory Read (16-bit)
 // ============================================================================
@@ -58,9 +60,12 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&VIDEORAM[HERC_VRAM_BASE + (address - 0xB0000)];
     }
 
-    // Likewise for VGA: mode 13h's 64K at 0xA0000.
+    // The EGA/VGA card owns 0xA0000..0xAFFFF, and decides for itself what
+    // a write there means: which planes, through which latches, under
+    // which write mode. See chipset/vgacard.h.
     if ((address - 0xA0000) < 0x10000) {
-        return *(uint16_t *)&VIDEORAM[VGA_VRAM_BASE + (address - 0xA0000)];
+        return (uint16_t)vgacard_mem_read(address - 0xA0000) |
+               (uint16_t)vgacard_mem_read(address - 0xA0000 + 1) << 8;
     }
 
     if ((address - 0xC8000) < 8192) {
@@ -116,9 +121,22 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
         return;
     }
 
-    // Likewise for VGA: mode 13h's 64K at 0xA0000.
     if ((address - 0xA0000) < 0x10000) {
-        write_to(VIDEORAM, VGA_VRAM_BASE + (address - 0xA0000), data, bhe);
+        /*
+         * The same byte-enable rules write_to() uses, and they matter
+         * more here: every one of these goes through the card's write
+         * logic, which may spread one byte across four planes. Getting
+         * the wrong half of a word to the wrong address does not smear
+         * the picture, it fills it with rubbish.
+         */
+        const uint32_t off = address - 0xA0000;
+        const uint32_t A0  = address & 1;
+        if (likely(!(bhe | A0))) {
+            vgacard_mem_write(off,     (uint8_t)data);
+            vgacard_mem_write(off + 1, (uint8_t)(data >> 8));
+        } else {
+            vgacard_mem_write(off, A0 ? (uint8_t)(data >> 8) : (uint8_t)data);
+        }
         return;
     }
 

@@ -3,6 +3,7 @@
 
 
 #include "state.h"
+#include "vgacard.h"
 
 // Tracing the CRTC is useful exactly once — when a BIOS programs a mode the
 // video driver does not expect — and ruinous every other time.
@@ -67,7 +68,21 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
             return cga.port3D8;
         case 0x3D9:
             return cga.port3D9;
+        case 0x3BA:
         case 0x3DA: // MC6845 status port
+            /*
+             * Also tell the card, and discard what it says.
+             *
+             * Reading this register resets the attribute controller's
+             * index/data flip-flop, and software relies on it: the
+             * sequence for touching a palette register is read 0x3DA,
+             * write index, write value. Answering here without passing
+             * the read on left the card's flip-flop wherever it happened
+             * to be, so the next index write landed as data and undid the
+             * mode -- an EGA picture that had been set up correctly went
+             * blank a moment later.
+             */
+            (void)vgacard_port_read(0x3DA);
             return port3DA;
         case 0 ... 0x0F: {
             return i8237_readport(address);
@@ -79,6 +94,9 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x40 ... 0x42: {
             return i8253_read(address);
         }
+        case 0x3C0 ... 0x3CF:
+            return vgacard_port_read(address);
+
         case 0x60:
             return current_scancode;
         case 0x61:
@@ -230,12 +248,14 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D2:
         case 0x3D4:
         case 0x3D6:
+            vgacard_port_write(0x3D4, (uint8_t)data);
             crtc_index = data;
             return;
         case 0x3D1:
         case 0x3D3:
         case 0x3D5:
         case 0x3D7:
+            vgacard_port_write(0x3D5, (uint8_t)data);
             mc6845.registers[crtc_index] = data;
 
             if (crtc_index < 0xc)
@@ -291,6 +311,17 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
          * so a CGA guest sees the flat mapping it always had.
          */
         /*
+         * The EGA/VGA register file: sequencer, graphics controller,
+         * attribute controller, misc output and the DAC. All of it goes
+         * to the card, which is the only thing that understands it.
+         */
+        case 0x3C0 ... 0x3C7:
+        case 0x3CA ... 0x3CF: {
+            vgacard_port_write(address, (uint8_t)data);
+            return;
+        }
+
+        /*
          * VGA colour DAC. 0x3C8 selects an entry, 0x3C9 takes red, green
          * and blue in turn and steps to the next entry after blue.
          *
@@ -300,11 +331,13 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
          * steps.
          */
         case 0x3C8: {
+            vgacard_port_write(address, (uint8_t)data);
             cga.dac_index = data;
             cga.dac_component = 0;
             return;
         }
         case 0x3C9: {
+            vgacard_port_write(address, (uint8_t)data);
             cga.dac_rgb[cga.dac_component] = data & 0x3Fu;
             if (++cga.dac_component >= 3) {
                 cga.dac_component = 0;
@@ -328,6 +361,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
          */
         case 0x3DC: {
             cga.vga_mode_request = data;
+            if (data) vgacard_set_bios_mode((uint8_t)data);
             cga.updated = true;
             return;
         }
