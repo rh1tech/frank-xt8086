@@ -48,9 +48,11 @@ uint8_t port3DA = 0; // VGA status port state
 uint8_t port61 = 0;  // System Control Port B (8255 PPI Port B)
 
 extern cga_s cga;
+extern mc6845_s mc6845_mda;
 extern mc6845_s mc6845;
 
 static uint8_t crtc_index = 0;
+static uint8_t crtc_index_mda = 0;
 static uint8_t tga_index = 0;
 
 __force_inline static uint8_t port_read8(const uint32_t address) {
@@ -207,20 +209,29 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return;
         }
 
+        // The MDA/Hercules card at 0x3Bx keeps its own index and its own
+        // registers; see state.h for why the two must not share.
         case 0x3B0:
         case 0x3B2:
         case 0x3B4:
         case 0x3B6:
+            crtc_index_mda = data;
+            return;
+        case 0x3B1:
+        case 0x3B3:
+        case 0x3B5:
+        case 0x3B7:
+            mc6845_mda.registers[crtc_index_mda] = data;
+            mc6845_mda.vram_offset =
+                    (mc6845_mda.r.start_addr_h << 8 | mc6845_mda.r.start_addr_l) << 1;
+            return;
+
         case 0x3D0:
         case 0x3D2:
         case 0x3D4:
         case 0x3D6:
             crtc_index = data;
             return;
-        case 0x3B1:
-        case 0x3B3:
-        case 0x3B5:
-        case 0x3B7:
         case 0x3D1:
         case 0x3D3:
         case 0x3D5:

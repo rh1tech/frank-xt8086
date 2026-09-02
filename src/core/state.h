@@ -152,6 +152,24 @@ typedef struct {
     uint8_t cursor_y;
 } mc6845_s;
 
+extern mc6845_s mc6845_mda;   // the MDA/Hercules card at 0x3Bx
+
+/*
+ * There are two of these.
+ *
+ * A Hercules and a CGA are separate cards with separate 6845s, and that
+ * is not a detail: software programs one without disturbing the other.
+ * Planet X3 sets up the Hercules CRTC for its graphics mode while the CGA
+ * card still holds the 80x25 text setup, and on exit it simply hands the
+ * display back -- the text geometry was never touched, so DOS comes back
+ * to a working screen.
+ *
+ * Modelling one shared register file broke exactly that. Programming
+ * Hercules overwrote the CGA text values with graphics ones, and exiting
+ * left text mode being drawn through a CRTC saying 40 columns of two-line
+ * characters: a black screen.
+ */
+
     typedef struct {
     uint8_t port3D8;
     uint8_t port3D9;

@@ -291,9 +291,24 @@ void __time_critical_func() vga_scanline_dma() {
      */
     const bool tall = graphics_mode == HERC_720x348x2 ||
                       graphics_mode == HERC_720x348x2_90;
-    const uint32_t drawn_lines =
-            (uint32_t)mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) *
-            (tall ? 1u : 2u);
+    /*
+     * Hercules rows are four scanlines, whatever R9 says.
+     *
+     * The bank counter on the card is two bits wide and the framebuffer
+     * is four interleaved banks, so a row is four lines and the picture
+     * is v_displayed * 4. Taking the height from R9 instead is what cut
+     * Planet X3 off mid-menu: it programs R9 = 2, which would make the
+     * rows three lines and the picture 300 rather than 400, and the
+     * bottom quarter simply was not drawn. The addressing here has always
+     * used four; only the line count disagreed.
+     *
+     * A stock 720x348 sets R9 = 3 and 87 rows, so four is right there
+     * too -- this is not a special case, it is the constant the hardware
+     * actually uses.
+     */
+    const uint32_t drawn_lines = tall
+            ? (uint32_t)mc6845_mda.r.v_displayed * 4u
+            : (uint32_t)mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2u;
 
     // If line index beyond prepared image area — fall back to blank
     if (unlikely(scanline >= drawn_lines)) {
@@ -621,10 +636,10 @@ void __time_critical_func() vga_scanline_dma() {
             // Hercules programs 45 for its 720, and Planet X3 programs 40
             // for 640. Reading it as one byte drew exactly half the
             // picture across half the screen.
-            const uint32_t stride = (uint32_t)mc6845.r.h_displayed * 2u;
+            const uint32_t stride = (uint32_t)mc6845_mda.r.h_displayed * 2u;
             const uint8_t *__restrict herc_row = &VIDEORAM[
                     HERC_VRAM_BASE +
-                    ((mc6845.vram_offset + ((y & 3) << 13) +
+                    ((mc6845_mda.vram_offset + ((y & 3) << 13) +
                       __fast_mul(y >> 2, stride)) & 0x7FFFu)];
             __builtin_prefetch(herc_row);
 
@@ -908,7 +923,7 @@ void graphics_set_mode(const enum graphics_mode_t mode) {
      * and needs no retiming at all.
      */
     const bool wide = (mode == HERC_720x348x2 || mode == HERC_720x348x2_90) &&
-                      mc6845.r.h_displayed * 16 > 640;
+                      mc6845_mda.r.h_displayed * 16 > 640;
     apply_timing(wide ? &timing_720x480 : &timing_640x480);
 
     graphics_mode = mode;

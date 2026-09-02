@@ -67,6 +67,7 @@ uart_16550_s uart __attribute__((aligned(4))) = {
 };
 
 mc6845_s mc6845 __attribute__((aligned(4)));
+mc6845_s mc6845_mda __attribute__((aligned(4)));   // the 0x3Bx card
 cga_s cga __attribute__((aligned(4)));
 
 // Lowered to 0xB0000 when Hercules claims its framebuffer.
