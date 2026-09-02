@@ -178,6 +178,20 @@ typedef struct {
     uint8_t herc_mode;
     uint8_t herc_config;
 
+    /*
+     * Which mode register was written last: the Hercules one at 0x3B8 or
+     * the CGA one at 0x3D8.
+     *
+     * A real machine could carry both cards and drive two monitors, so
+     * neither has to switch the other off, and software does not bother:
+     * Planet X3 leaves 0x3B8 still asking for graphics when it exits, and
+     * the BIOS restores text by writing 0x3D8 alone. With one display
+     * something has to arbitrate, and the card most recently programmed
+     * is the one being addressed. Without this the text screen came back
+     * drawn as a Hercules bitmap.
+     */
+    bool herc_selected;
+
     uint32_t tandy_crt_base;
     uint32_t tandy_cpu_base;
     bool updated;

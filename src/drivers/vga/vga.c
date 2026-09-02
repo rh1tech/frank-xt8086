@@ -616,7 +616,12 @@ void __time_critical_func() vga_scanline_dma() {
          */
         case HERC_720x348x2:
         case HERC_720x348x2_90: {
-            const uint32_t stride = mc6845.r.h_displayed;
+            // Two bytes a character. In graphics the 6845 counts
+            // character clocks of sixteen pixels, not eight: a stock
+            // Hercules programs 45 for its 720, and Planet X3 programs 40
+            // for 640. Reading it as one byte drew exactly half the
+            // picture across half the screen.
+            const uint32_t stride = (uint32_t)mc6845.r.h_displayed * 2u;
             const uint8_t *__restrict herc_row = &VIDEORAM[
                     (mc6845.vram_offset + ((y & 3) << 13) + __fast_mul(y >> 2, stride))
                     & (VIDEORAM_SIZE - 1)];
@@ -897,12 +902,12 @@ void graphics_set_mode(const enum graphics_mode_t mode) {
 
     /*
      * Only a Hercules can be wider than 640, and only sometimes: the
-     * width is whatever the CRTC has been programmed for. 90 characters
-     * is the stock 720; Planet X3 asks for 80 and needs no retiming at
-     * all.
+     * width is whatever the CRTC has been programmed for, sixteen
+     * pixels a character: 45 is the stock 720, and Planet X3 asks for 40
+     * and needs no retiming at all.
      */
     const bool wide = (mode == HERC_720x348x2 || mode == HERC_720x348x2_90) &&
-                      mc6845.r.h_displayed > 80;
+                      mc6845.r.h_displayed * 16 > 640;
     apply_timing(wide ? &timing_720x480 : &timing_640x480);
 
     graphics_mode = mode;

@@ -457,7 +457,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * would take 32K away from a guest that had already been
                  * told it had them.
                  */
-                const bool herc = settings.hercules &&
+                const bool herc = settings.hercules && cga.herc_selected &&
                                   (cga.herc_config & 1u) && (cga.herc_mode & 0b10);
 
                 if (herc) {
