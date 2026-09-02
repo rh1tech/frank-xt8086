@@ -5,6 +5,19 @@
 #include "state.h"
 
 /*
+ * Where the text modes fetch characters from.
+ *
+ * VIDEORAM normally — the page the 8086 writes. The on-screen display
+ * points it at its own buffer so a menu can be shown over a guest that is
+ * still running, rather than drawn into the page the guest owns and then
+ * scribbled over by the next thing it prints.
+ *
+ * Read once per scanline, and only ever changed by core 0 between frames,
+ * so no synchronisation is needed beyond it being a single aligned word.
+ */
+uint8_t *vga_text_source = NULL;
+
+/*
  * Bit- and byte-reverse, without arm_acle.h.
  *
  * This used __rbit() and __rev() out of <arm_acle.h>. Arm GNU Toolchain
@@ -166,7 +179,8 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t *) &VIDEORAM[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
+            const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
 
             const bool is_cursor_line_active =
@@ -235,7 +249,8 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
-            const uint32_t *__restrict text_buffer_line = (uint32_t *) &VIDEORAM[
+            const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[
                 (mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)) & 0x3FFF];
             __builtin_prefetch(text_buffer_line);
             const bool is_cursor_line_active =

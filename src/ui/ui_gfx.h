@@ -103,6 +103,18 @@ typedef enum { UI_BOX_SINGLE, UI_BOX_DOUBLE } ui_box_style_t;
 // is on-screen, and an off-by-one that scribbles past VIDEORAM would land
 // in the middle of whatever the linker put next.
 
+/*
+ * Where ui_* draws.
+ *
+ * VIDEORAM by default, which is right for everything that runs before the
+ * 8086 does. The on-screen display points this at its own buffer instead,
+ * so a menu can be drawn over a running guest without fighting it for the
+ * text page it is still writing to.
+ *
+ * Pass NULL to go back to VIDEORAM.
+ */
+void ui_set_target(uint8_t *buf);
+
 void ui_clear(uint8_t attr);
 void ui_putc(int x, int y, uint8_t ch, uint8_t attr);
 void ui_fill(int x, int y, int w, int h, uint8_t ch, uint8_t attr);

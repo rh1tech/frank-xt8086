@@ -15,10 +15,15 @@
 #define COLS TEXTMODE_COLS
 #define ROWS TEXTMODE_ROWS
 
+// Where drawing lands. VIDEORAM unless the OSD has redirected it.
+static uint8_t *target = NULL;
+
+void ui_set_target(uint8_t *buf) { target = buf; }
+
 // One cell is a CP437 code point and an attribute byte, in that order,
 // which is the layout the CGA text renderer in drivers/graphics expects.
 static inline uint16_t *cell(const int x, const int y) {
-    return (uint16_t *)VIDEORAM + (y * COLS + x);
+    return (uint16_t *)(target ? target : VIDEORAM) + (y * COLS + x);
 }
 
 static inline bool on_screen(const int x, const int y) {
@@ -183,13 +188,13 @@ static uint16_t saved[COLS * ROWS];
 static bool     saved_valid;
 
 void ui_screen_save(void) {
-    memcpy(saved, VIDEORAM, sizeof saved);
+    memcpy(saved, target ? target : VIDEORAM, sizeof saved);
     saved_valid = true;
 }
 
 void ui_screen_restore(void) {
     if (!saved_valid) return;
-    memcpy(VIDEORAM, saved, sizeof saved);
+    memcpy(target ? target : VIDEORAM, saved, sizeof saved);
     saved_valid = false;
 }
 

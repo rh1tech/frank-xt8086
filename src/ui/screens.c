@@ -37,11 +37,36 @@ extern uint8_t current_scancode;   // set by the USB HID keyboard handler
  * keyboard on the host port and a terminal on J1. The splash uses this to
  * decide whether an operator is watching.
  */
-static bool any_key(void) {
+// What a poll found. DEL is singled out because it is the one key with a
+// meaning here; everything else only says "somebody is watching".
+typedef enum { KEY_NONE, KEY_OTHER, KEY_DEL } key_t;
+
+#define XT_SCANCODE_DEL 0x53u
+
+static key_t poll_key(void) {
     keyboard_tick();
-    if (current_scancode) { current_scancode = 0; return true; }
-    return getchar_timeout_us(0) != PICO_ERROR_TIMEOUT;
+    if (current_scancode) {
+        const uint8_t sc = current_scancode;
+        current_scancode = 0;
+        return sc == XT_SCANCODE_DEL ? KEY_DEL : KEY_OTHER;
+    }
+
+    const int c = getchar_timeout_us(0);
+    if (c == PICO_ERROR_TIMEOUT) return KEY_NONE;
+    if (c == 0x7F) return KEY_DEL;                 // some terminals
+
+    if (c == 0x1B) {
+        // ESC [ 3 ~ is Delete on the rest of them. Anything else starting
+        // with ESC is a cursor key or a bare Escape, and neither is DEL.
+        if (getchar_timeout_us(20000) != '[') return KEY_OTHER;
+        if (getchar_timeout_us(20000) != '3') return KEY_OTHER;
+        (void)getchar_timeout_us(20000);           // the trailing '~'
+        return KEY_DEL;
+    }
+    return KEY_OTHER;
 }
+
+static bool any_key(void) { return poll_key() != KEY_NONE; }
 
 /*
  * Throw away input that arrived before anyone was asked a question.
@@ -128,7 +153,7 @@ bool screen_splash(const splash_info_t *info, const uint32_t hold_ms) {
                           UI_ATTR(UI_YELLOW, UI_WIN_BG));
     }
 
-    ui_text_center_in(x, SPLASH_W, y + 12, "Press any key for SETUP",
+    ui_text_center_in(x, SPLASH_W, y + 12, "Press DEL to enter SETUP",
                       UI_ATTR_DIM);
 
     // Animate until the hold expires or somebody presses something. The
@@ -139,7 +164,11 @@ bool screen_splash(const splash_info_t *info, const uint32_t hold_ms) {
     const absolute_time_t deadline = make_timeout_time_ms(hold_ms);
     int frame = 0;
     while (absolute_time_diff_us(get_absolute_time(), deadline) > 0) {
-        if (any_key()) return true;
+        switch (poll_key()) {
+            case KEY_DEL:   return true;    // SETUP
+            case KEY_OTHER: return false;   // skip the rest of the wait
+            default: break;
+        }
         ui_plasma(++frame, x, y, SPLASH_W, SPLASH_H);
         sleep_ms(16);
     }

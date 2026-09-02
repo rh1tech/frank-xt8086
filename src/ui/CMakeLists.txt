@@ -16,8 +16,9 @@ target_sources(xt8086_ui INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/setup_menu.c
         ${CMAKE_CURRENT_LIST_DIR}/ui_gfx.c
         ${CMAKE_CURRENT_LIST_DIR}/screens.c
+        ${CMAKE_CURRENT_LIST_DIR}/osd.c
 )
 
 target_include_directories(xt8086_ui INTERFACE ${CMAKE_CURRENT_LIST_DIR})
 
-target_link_libraries(xt8086_ui INTERFACE xt8086_core graphics fatfs usbhid)
+target_link_libraries(xt8086_ui INTERFACE xt8086_core graphics fatfs usbhid audio)

@@ -21,6 +21,7 @@
 #include "psram.h"
 #include "cpu_probe.h"
 #include "screens.h"
+#include "osd.h"
 #include "ui_gfx.h"
 
 // 8086 related libs
@@ -49,6 +50,60 @@ uint8_t current_scancode = 0; // 0 = нет данных
 // FDC reads this to decide between the SD file and the built-in bootOS
 // image; see src/chipset/i8272.h.
 uint8_t fdd_media_mask = 0;
+
+// The open image files. File-scope rather than main()'s locals because
+// the drive menu can reopen them long after main() has moved on.
+static FIL floppy_files[2];
+static FIL hdd_file;
+static bool sd_mounted;
+
+/*
+ * Open whatever settings currently name, closing whatever was open.
+ *
+ * Called once at boot and again whenever the drive menu changes
+ * something. Reopening rather than patching is what makes a swap take
+ * effect immediately: the FDC reads fdd_media_mask on every transfer and
+ * the IDE model follows ide.disk_image, so both see the new state on
+ * their next access with nothing else to notify.
+ */
+void media_reload(void) {
+    if (fdd_media_mask & 1u) f_close(&floppy_files[0]);
+    if (fdd_media_mask & 2u) f_close(&floppy_files[1]);
+    if (ide.disk_image) f_close(ide.disk_image);
+    fdd_media_mask = 0;
+    ide.disk_image = nullptr;
+
+    if (!sd_mounted) {
+        // No card: drive A: still answers, from the built-in bootOS in
+        // flash. See chipset/i8272.h.
+        printf("[media] no card; drive A: is the built-in bootOS\n");
+        return;
+    }
+
+    if (settings.fda[0]) {
+        if (FR_OK == f_open(&floppy_files[0], settings.fda, FA_READ | FA_WRITE))
+            fdd_media_mask |= 1u << 0;
+        else
+            printf("[media] A: %s not found\n", settings.fda);
+    }
+    if (settings.fdb[0]) {
+        if (FR_OK == f_open(&floppy_files[1], settings.fdb, FA_READ | FA_WRITE))
+            fdd_media_mask |= 1u << 1;
+        else
+            printf("[media] B: %s not found\n", settings.fdb);
+    }
+    if (settings.hdd[0]) {
+        if (FR_OK == f_open(&hdd_file, settings.hdd, FA_READ | FA_WRITE))
+            ide.disk_image = &hdd_file;
+        else
+            printf("[media] C: %s not found\n", settings.hdd);
+    }
+
+    printf("[media] A:%s B:%s C:%s\n",
+           (fdd_media_mask & 1) ? settings.fda : "-",
+           (fdd_media_mask & 2) ? settings.fdb : "-",
+           ide.disk_image ? settings.hdd : "-");
+}
 FATFS fs;
 
 // How long the splash is held before booting on its own. Long enough to
@@ -101,11 +156,47 @@ static inline void pic_init(void) {
 // ============================================================================
 // Set scancode and trigger IRQ1 (keyboard interrupt)
 // ============================================================================
+/*
+ * Every keystroke passes through here on its way to the 8086 -- which
+ * makes it the one place a host hot key can be taken out of the stream
+ * before the guest ever sees it.
+ *
+ * Ctrl+Alt+F1 opens the drive menu. The modifiers are tracked from the
+ * scancodes themselves because that is all the HID layer hands us: make
+ * and break codes, no separate modifier state.
+ */
+#define SC_CTRL_MAKE  0x1Du
+#define SC_CTRL_BREAK 0x9Du
+#define SC_ALT_MAKE   0x38u
+#define SC_ALT_BREAK  0xB8u
+#define SC_F1         0x3Bu
+
+static bool ctrl_down, alt_down;
+volatile bool osd_requested;
+
 bool handleScancode(const uint8_t ps2scancode) {
     if (ps2scancode == 0x00) return false; // Ignore unknown keys
 
+    switch (ps2scancode) {
+        case SC_CTRL_MAKE:  ctrl_down = true;  break;
+        case SC_CTRL_BREAK: ctrl_down = false; break;
+        case SC_ALT_MAKE:   alt_down  = true;  break;
+        case SC_ALT_BREAK:  alt_down  = false; break;
+        default: break;
+    }
+
+    if (ctrl_down && alt_down && ps2scancode == SC_F1) {
+        // Swallowed: the guest never learns this key was pressed, which
+        // is the point -- otherwise DOS would act on an F1 as well.
+        osd_requested = true;
+        return true;
+    }
+
     current_scancode = ps2scancode;
-    i8259_interrupt(1); // IRQ1 - Keyboard interrupt через i8259
+
+    // While the menu is up the keystrokes are the menu's, so the guest is
+    // not told about them. It sees a keyboard nobody touched.
+    if (!osd_active()) i8259_interrupt(1);   // IRQ1
     return true;
 }
 
@@ -162,10 +253,8 @@ bool handleScancode(const uint8_t ps2scancode) {
     graphics_set_mode(TEXTMODE_80x25_COLOR);
     sleep_ms(100);  // let the VGA driver's DMA chain come up
 
-    FIL floppy_files[2];
-    FIL hdd_file;
-
     const bool sd_ok = (FR_OK == f_mount(&fs, "", 1));
+    sd_mounted = sd_ok;
     if (!sd_ok) printf("[xt8086] no SD card, or the card could not be mounted\n");
 
     // Settings live on the card; without one, the defaults stand.
@@ -224,37 +313,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     // SETUP, before the disks are opened and before core 1 starts.
     if (wants_setup) setup_menu();
 
-    // Открываем первую дискетку (обязательная) - используем путь из settings
-    if (sd_ok && settings.fda[0] != '\0') {
-        if (FR_OK != f_open(&floppy_files[0], settings.fda, FA_READ | FA_WRITE)) {
-            printf("Floppy image not found: %s\n", settings.fda);
-        } else {
-            fdd_media_mask |= 1u << 0;
-        }
-    }
-
-    // Открываем вторую дискетку (опциональная) - используем путь из settings
-    if (sd_ok && settings.fdb[0] != '\0') {
-        if (FR_OK != f_open(&floppy_files[1], settings.fdb, FA_READ | FA_WRITE)) {
-            printf("Warning: Second floppy image (%s) not found, drive B: will be unavailable\n", settings.fdb);
-        } else {
-            fdd_media_mask |= 1u << 1;
-        }
-    } else {
-        printf("Floppy B: disabled (no image selected)\n");
-    }
-
-    // Открываем HDD образ - используем путь из settings
-    ide.disk_image = &hdd_file;
-    if (sd_ok && settings.hdd[0] != '\0') {
-        if (FR_OK != f_open(ide.disk_image, settings.hdd, FA_READ | FA_WRITE)) {
-            printf("Warning: HDD image (%s) not found, drive C: will be unavailable\n", settings.hdd);
-            ide.disk_image = nullptr;  // Сбрасываем указатель если диск не найден
-        }
-    } else {
-        printf("HDD disabled (no image selected)\n");
-        ide.disk_image = nullptr;
-    }
+    media_reload();
 
     // A short two-note chime, so "it booted" is audible from across the
     // bench without watching the screen. Through the mixer now, like
@@ -322,6 +381,11 @@ bool handleScancode(const uint8_t ps2scancode) {
         // 5.8 ms and the frame tick is 16.6 ms apart, so refilling there
         // would underrun twice out of every three blocks.
         audio_task();
+
+        if (osd_requested) {
+            osd_requested = false;
+            osd_drive_menu();
+        }
 
         // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {

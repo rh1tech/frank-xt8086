@@ -37,11 +37,16 @@ typedef struct {
 
 /*
  * The startup splash: a centred window over an animated plasma, held for
- * `hold_ms` or until a key is pressed, whichever comes first.
+ * `hold_ms`.
  *
- * Returns true if a key was pressed — the caller uses that to decide
- * whether the operator is present, and so whether SETUP should wait for
- * them or carry on and boot.
+ * Returns true only if DEL was pressed, which is the request for SETUP.
+ * Any other key just cuts the wait short and boots — the same bargain a
+ * real BIOS offers, and better than the previous "any key opens SETUP":
+ * that turned a stray byte on the console into a machine sitting at a
+ * menu nobody asked for.
+ *
+ * DEL is the HID Delete key, or over a terminal either 0x7F or the ANSI
+ * sequence ESC [ 3 ~, since terminals disagree about which one Delete is.
  */
 bool screen_splash(const splash_info_t *info, uint32_t hold_ms);
 
