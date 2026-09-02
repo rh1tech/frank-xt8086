@@ -38,6 +38,7 @@
 #include "ff.h"
 #include "f_util.h"
 #include "console.h"
+#include "memory.h"
 #include "setup_menu.h"
 extern cga_s cga;
 extern mc6845_s mc6845;
@@ -342,6 +343,10 @@ bool handleScancode(const uint8_t ps2scancode) {
     printf("[boot] SETUP %s\n", wants_setup ? "requested" : "not requested");
     if (wants_setup) setup_menu();
 
+    // Before core 1 releases the 8086, so the BIOS counts the right
+    // figure: Hercules takes 0xB0000..0xB7FFF for its framebuffer.
+    ram_limit = settings.hercules ? 0xB0000u : RAM_SIZE;
+
     media_reload();
 
     // A short two-note chime, so "it booted" is audible from across the
@@ -435,7 +440,36 @@ bool handleScancode(const uint8_t ps2scancode) {
         }
 
         if (cga.updated) {
-                if (unlikely(cga.port3D8 & 0b10)) {
+                /*
+                 * Hercules first, because it is not a CGA mode at all and
+                 * none of the CGA register logic below applies to it.
+                 *
+                 * Both conditions matter. Bit 1 of the mode register asks
+                 * for graphics, and bit 0 of the configuration switch is
+                 * the card's own permission for graphics to exist -- an
+                 * MDA program that never touches 0x3BF must not be
+                 * mistaken for a Hercules one.
+                 *
+                 * The memory has already been claimed by then. The
+                 * framebuffer is at 0xB0000, inside the 736K this machine
+                 * normally offers, so the SETUP option lowers the ceiling
+                 * before the BIOS counts memory. Doing it here instead
+                 * would take 32K away from a guest that had already been
+                 * told it had them.
+                 */
+                const bool herc = settings.hercules &&
+                                  (cga.herc_config & 1u) && (cga.herc_mode & 0b10);
+
+                if (herc) {
+                    videomode = HERC_720x348x2;
+
+                    // One bit a pixel and no palette register anywhere on
+                    // the card: a Hercules is on or off, and the colour
+                    // was whatever the phosphor happened to be.
+                    graphics_set_bgcolor(0);
+                    graphics_set_palette(0, cga_palette[0]);
+                    graphics_set_palette(1, cga_palette[15]);
+                } else if (unlikely(cga.port3D8 & 0b10)) {
                     // Bit 1: Graphics/Text Select
                     if (unlikely(cga.port3D8 & 0b10000)) {
                         {

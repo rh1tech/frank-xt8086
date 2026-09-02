@@ -237,14 +237,12 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             mc6845.cursor_x = cursor_offset % mc6845.r.h_displayed;
             mc6845.cursor_y = cursor_offset / mc6845.r.h_displayed;
             return;
-        case 0x3B8:
         case 0x3D8: {
             cga.port3D8 = data; // Store the raw register value
             mc6845.text_blinking_mask = (data & 0b100000) ? 0x7F : 0xFF; // BIT 5: blinking enabled (маска для бита атрибута)
             cga.updated = true;
             return;
         }
-        case 0x3BF:
         case 0x3D9:
             cga.port3D9 = data;
             cga.updated = true;
@@ -280,6 +278,21 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
          * Zero at reset and left alone by anything that is not a Tandy,
          * so a CGA guest sees the flat mapping it always had.
          */
+        // Hercules mode register: bit 1 selects graphics, bit 3 enables
+        // video, bit 7 picks the second 32K page.
+        case 0x3B8: {
+            cga.herc_mode = data;
+            cga.updated = true;
+            return;
+        }
+
+        // Configuration switch. Bit 0 permits graphics at all.
+        case 0x3BF: {
+            cga.herc_config = data;
+            cga.updated = true;
+            return;
+        }
+
         case 0x3DF: {
             cga.tandy_crt_base = (uint32_t)(data & 0x07u) << 14;
             cga.tandy_cpu_base = (uint32_t)((data >> 3) & 0x07u) << 14;

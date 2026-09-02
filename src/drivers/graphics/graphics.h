@@ -38,8 +38,14 @@ enum graphics_mode_t {
     CGA_320x200x4_BW = 5,
 
     CGA_640x200x2 = 6,
-    HERC_640x480x2 = 7,
-    HERC_640x480x2_90 = 0x1e,
+
+    /*
+     * Hercules is 720x348, not the 640x480 the inherited name claimed.
+     * It is the one mode here wider than 640 pixels, so it is also the
+     * one that needs its own display timing.
+     */
+    HERC_720x348x2 = 7,
+    HERC_720x348x2_90 = 0x1e,
     TGA_160x200x16 = 8,
 
     TGA_320x200x16 = 9,

@@ -66,33 +66,69 @@ const struct pio_program pio_program_VGA = {
 
 // --- Display geometry / timing (renamed) ---
 
-constexpr int total_scanlines = 525; // previously N_lines_total
-constexpr int visible_scanlines = 480; // previously N_lines_visible
-constexpr int vsync_start_line = 490; // previously line_VS_begin
-constexpr int vsync_end_line = 491; // previously line_VS_end
+/*
+ * Display timing, chosen per mode rather than fixed.
+ *
+ * Everything here used to be constexpr, which was fine while every mode
+ * was 640 pixels across. Hercules is 720, and no arrangement of a
+ * 640-pixel line will show it: the pixels have to be narrower and the
+ * line longer.
+ *
+ * Both entries run the line at the same 31.469 kHz, which is what makes
+ * switching between them safe -- a display relocks on the pixel count,
+ * not on a new horizontal frequency. 720x400 at 70 Hz would have been the
+ * obvious choice for Hercules, being the mode every VGA card uses for DOS
+ * text, but it wants a positive vertical sync where this hardware emits a
+ * negative one, and the converter on this board would not lock to it.
+ * 720x480 at 60 Hz keeps the vertical timing we already know works and
+ * only widens the line. That is measured, not assumed: at 720x400 the
+ * capture end reported no signal at all, and at 720x480 it locked.
+ */
+typedef struct {
+    int total_scanlines;
+    int visible_scanlines;
+    int vsync_start_line;
+    int vsync_end_line;
+    int pixel_clock;
+    int hsync_offset_bytes;      // HS_SHIFT
+    int hsync_pulse_width_bytes; // HS_SIZE, the back porch
+    int scanline_bytes;          // whole line, sync and porches included
+    int visible_bytes;           // of which picture
+} vga_timing_t;
 
-// --- timing/template constants and buffer setup ---
-constexpr int pixel_clock = 25'175'000; // 25.175Mhz
+static const vga_timing_t timing_640x480 = {
+    525, 480, 490, 491, 25'175'000, 328 * 2, 48 * 2, 400 * 2, 640,
+};
 
-constexpr int hsync_offset_bytes = 328 * 2; // HS_SHIFT
-constexpr int hsync_pulse_width_bytes = 48 * 2; // HS_SIZE // Back porch
-constexpr int scanline_bytes = 400 * 2;
+static const vga_timing_t timing_720x480 = {
+    525, 480, 490, 491, 28'322'000, 738, 108, 900, 720,
+};
+
+// Buffers are sized for the longest line either timing needs.
+#define MAX_SCANLINE_BYTES 900
+
+static vga_timing_t vt = timing_640x480;
+
+// Where the picture starts within a line buffer, in 32-bit words. Held
+// separately because the scanline interrupt reads it every line.
+static int picture_hshift_words;
 
 #if defined(VGA_CSYNC)
 constexpr int VGA_PINS = 7;
-constexpr int picture_hshift_bytes = scanline_bytes - hsync_offset_bytes + 12;
+#define PICTURE_HSHIFT_BYTES (vt.scanline_bytes - vt.hsync_offset_bytes + 12)
 #else
 constexpr int VGA_PINS = 8;
-constexpr int picture_hshift_bytes = scanline_bytes - hsync_offset_bytes;
+#define PICTURE_HSHIFT_BYTES (vt.scanline_bytes - vt.hsync_offset_bytes)
 #endif
 
 // scanline_buffers: [0]=blank, [1]=vsync, [2]=image
 enum { VBLANK, VSYNC, IMAGE };
 #define SCANLINE_BUFFERS 3
 static uint32_t *scanline_buffers[SCANLINE_BUFFERS] __attribute__((aligned(4))) = {0};
-static uint32_t scanline_buffer_mem[scanline_bytes * SCANLINE_BUFFERS] __attribute__((aligned(32)));
+static uint32_t scanline_buffer_mem[MAX_SCANLINE_BYTES * SCANLINE_BUFFERS] __attribute__((aligned(32)));
 
 // --- DMA / PIO channels ---
+static uint sm;              // the VGA state machine, needed to retime it
 static int dma_ctrl_channel;
 static int dma_data_channel;
 
@@ -229,13 +265,13 @@ void __time_critical_func() vga_scanline_dma() {
 
     // advance scanline/frame counters
     scanline++;
-    if (unlikely(scanline == total_scanlines)) {
+    if (unlikely(scanline == vt.total_scanlines)) {
         scanline = 0;
     }
 
     // If outside visible area - mark output as finished
-    if (unlikely(scanline >= visible_scanlines)) {
-        const int is_vsync = (scanline >= vsync_start_line && scanline <= vsync_end_line) ? VSYNC : VBLANK;
+    if (unlikely(scanline >= vt.visible_scanlines)) {
+        const int is_vsync = (scanline >= vt.vsync_start_line && scanline <= vt.vsync_end_line) ? VSYNC : VBLANK;
         dma_channel_set_read_addr(dma_ctrl_channel, &scanline_buffers[is_vsync], false);
         port3DA = 9;
         return;
@@ -260,7 +296,7 @@ void __time_critical_func() vga_scanline_dma() {
         y >>= 1; // 200 logical lines
     }
     uint32_t **scanline_output_ptr = &scanline_buffers[IMAGE];
-    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_bytes / 4;
+    uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_words;
 
 
     // activate output for visible lines
@@ -537,6 +573,49 @@ void __time_critical_func() vga_scanline_dma() {
          * 640 pixels means one output byte per pixel, where the 320-wide
          * modes write a palette entry twice.
          */
+        /*
+         * Hercules, 720x348 mono.
+         *
+         * Four-way scanline interleave, like the Tandy modes, but in 8K
+         * banks: line L lives at (L & 3) * 8192 + (L >> 2) * 90. Ninety
+         * bytes is 720 bits, one per pixel, and 4 * 87 * 90 = 31,320
+         * bytes is the whole picture.
+         *
+         * 348 lines are drawn into 480, so the vertical position is up to
+         * whatever the CRTC asks for; nothing is scaled.
+         *
+         * Bit 7 of each byte is the leftmost pixel, so the word is
+         * reversed once and then consumed from the bottom, which is what
+         * CGA_640x200x2 does with the same problem.
+         */
+        case HERC_720x348x2:
+        case HERC_720x348x2_90: {
+            const uint32_t *__restrict herc_row = (uint32_t *) &VIDEORAM[
+                    (mc6845.vram_offset + ((y & 3) << 13) + __fast_mul(y >> 2, 90))
+                    & (VIDEORAM_SIZE - 1)];
+            __builtin_prefetch(herc_row);
+
+            // 720 pixels is 22 whole words plus a half.
+            for (int x = 22; x--;) {
+                uint32_t dword = rbit32(__builtin_bswap32(*herc_row++));
+                for (int i = 8; i--;) {
+                    uint32_t g = palette[dword & 1];               dword >>= 1;
+                    g |= (uint32_t) palette[dword & 1] << 8;       dword >>= 1;
+                    g |= (uint32_t) palette[dword & 1] << 16;      dword >>= 1;
+                    g |= (uint32_t) palette[dword & 1] << 24;      dword >>= 1;
+                    *scanline_output_32++ = g;
+                }
+            }
+            uint32_t dword = rbit32(__builtin_bswap32(*herc_row));
+            for (int i = 4; i--;) {
+                uint32_t g = palette[dword & 1];                   dword >>= 1;
+                g |= (uint32_t) palette[dword & 1] << 8;           dword >>= 1;
+                g |= (uint32_t) palette[dword & 1] << 16;          dword >>= 1;
+                g |= (uint32_t) palette[dword & 1] << 24;          dword >>= 1;
+                *scanline_output_32++ = g;
+            }
+            break;
+        }
         case TGA_640x200x16: {
             const uint8_t *__restrict tga_row = &VIDEORAM[
                     (cga.tandy_crt_base + mc6845.vram_offset +
@@ -558,7 +637,7 @@ void __time_critical_func() vga_scanline_dma() {
 }
 
 void graphics_set_bgcolor(const uint32_t color888) {
-    uint32_t *scanline_output_ptr = scanline_buffers[VBLANK] + picture_hshift_bytes / 4;
+    uint32_t *scanline_output_ptr = scanline_buffers[VBLANK] + picture_hshift_words;
     const uint32_t color = ((palette[color888] << 16) | palette[color888]) & 0x3f3f3f3f | 0xc0c0c0c0;
     for (int i = 160; i--;) {
         *scanline_output_ptr++ = color;
@@ -579,6 +658,94 @@ void graphics_set_palette(const uint8_t index, const uint32_t color) {
 }
 
 // -----------------------------------------------------------------------------
+/*
+ * Paint the sync and blanking patterns for the current timing.
+ *
+ * Called again whenever the timing changes, because every one of these
+ * lengths comes from it.
+ */
+static void build_sync_templates(void) {
+    picture_hshift_words = PICTURE_HSHIFT_BYTES / 4;
+
+    constexpr uint8_t tmpl_active_video  = 0b11000000; // TMPL_LINE8
+#ifdef VGA_CSYNC
+    // --- CSYNC MODE (VHBBGGRR) ---
+    // HSync (bit 6) несет композитный сигнал.
+    // VSync (bit 7) всегда 1 (отключен/неактивен).
+    // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
+    constexpr uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
+    constexpr uint8_t tmpl_vsync         = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
+    constexpr uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
+#else
+    // --- STANDARD VGA MODE (VHBBGGRR) ---
+    const uint8_t tmpl_hsync = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
+    const uint8_t tmpl_vsync = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
+    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
+#endif
+
+    // base pointer to buffer memory as bytes
+    auto base_ptr = scanline_buffers[VBLANK];
+
+    // пустая строка (active video background)
+    memset(base_ptr, tmpl_active_video, vt.scanline_bytes);
+
+    // выровненная синхра вначале
+    memset(base_ptr, tmpl_hsync, vt.hsync_pulse_width_bytes);
+
+    // кадровая синхра (vsync)
+    base_ptr = scanline_buffers[VSYNC];
+    memset(base_ptr, tmpl_vsync, vt.scanline_bytes);
+    memset(base_ptr, tmpl_video_hv_sync, vt.hsync_pulse_width_bytes);
+
+    // заготовки для строк с изображением (copy blank template)
+    base_ptr = scanline_buffers[IMAGE];
+    memcpy(base_ptr, scanline_buffers[VBLANK], vt.scanline_bytes);
+}
+
+/*
+ * (Re)configure the two chained DMA channels.
+ *
+ * The control channel rewrites the data channel's read address and the
+ * data channel chains back to it, so the pair free-runs a line at a time.
+ * Both descriptions depend on the line length, which is why this is a
+ * function and not just part of init: changing timing has to rewrite
+ * them.
+ */
+static void configure_vga_dma(void) {
+    // main data channel config
+    dma_channel_config data_cfg = dma_channel_get_default_config(dma_data_channel);
+    channel_config_set_transfer_data_size(&data_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&data_cfg, true);
+    channel_config_set_write_increment(&data_cfg, false);
+
+    channel_config_set_dreq(&data_cfg, (PIO_VGA == pio0 ? DREQ_PIO0_TX0 : DREQ_PIO1_TX0) + sm);
+    channel_config_set_chain_to(&data_cfg, dma_ctrl_channel);
+
+    dma_channel_configure(
+        dma_data_channel,
+        &data_cfg,
+        &PIO_VGA->txf[sm], // write address (PIO TX FIFO)
+        scanline_buffers[VBLANK], // read address (will be updated)
+        vt.scanline_bytes / 4,
+        false);
+
+    // control channel config
+    dma_channel_config ctrl_cfg = dma_channel_get_default_config(dma_ctrl_channel);
+    channel_config_set_transfer_data_size(&ctrl_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&ctrl_cfg, false);
+    channel_config_set_write_increment(&ctrl_cfg, false);
+    channel_config_set_chain_to(&ctrl_cfg, dma_data_channel);
+
+    dma_channel_configure(
+        dma_ctrl_channel,
+        &ctrl_cfg,
+        &dma_hw->ch[dma_data_channel].read_addr, // write address (point to read_addr of a data channel)
+        &scanline_buffers[VBLANK], // read address (pattern pointer)
+        1,
+        false);
+
+}
+
 void graphics_init() {
     build_composite_palette();
 
@@ -586,7 +753,7 @@ void graphics_init() {
     // On RP2350B
     pio_set_gpio_base(PIO_VGA, 16);
     const uint offset = pio_add_program(PIO_VGA, &pio_program_VGA);
-    const uint sm = pio_claim_unused_sm(PIO_VGA, true);
+    sm = pio_claim_unused_sm(PIO_VGA, true);
 
     for (int i = 0; i < VGA_PINS; i++) {
         gpio_init(VGA_BASE_PIN + i);
@@ -605,43 +772,13 @@ void graphics_init() {
 
     pio_sm_init(PIO_VGA, sm, offset, &cfg);
     pio_sm_set_enabled(PIO_VGA, sm, true);
-    pio_sm_set_clkdiv(PIO_VGA, sm, clock_get_hz(clk_sys) / pixel_clock); // set PIO clock divider approximately for 25.175MHz pixel clock
+    pio_sm_set_clkdiv(PIO_VGA, sm, (float)clock_get_hz(clk_sys) / vt.pixel_clock);
 
     // --- initialize DMA channels ---
     dma_ctrl_channel = dma_claim_unused_channel(true);
     dma_data_channel = dma_claim_unused_channel(true);
 
-    // main data channel config
-    dma_channel_config data_cfg = dma_channel_get_default_config(dma_data_channel);
-    channel_config_set_transfer_data_size(&data_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&data_cfg, true);
-    channel_config_set_write_increment(&data_cfg, false);
-
-    channel_config_set_dreq(&data_cfg, (PIO_VGA == pio0 ? DREQ_PIO0_TX0 : DREQ_PIO1_TX0) + sm);
-    channel_config_set_chain_to(&data_cfg, dma_ctrl_channel);
-
-    dma_channel_configure(
-        dma_data_channel,
-        &data_cfg,
-        &PIO_VGA->txf[sm], // write address (PIO TX FIFO)
-        scanline_buffers[VBLANK], // read address (will be updated)
-        scanline_bytes / 4,
-        false);
-
-    // control channel config
-    dma_channel_config ctrl_cfg = dma_channel_get_default_config(dma_ctrl_channel);
-    channel_config_set_transfer_data_size(&ctrl_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&ctrl_cfg, false);
-    channel_config_set_write_increment(&ctrl_cfg, false);
-    channel_config_set_chain_to(&ctrl_cfg, dma_data_channel);
-
-    dma_channel_configure(
-        dma_ctrl_channel,
-        &ctrl_cfg,
-        &dma_hw->ch[dma_data_channel].read_addr, // write address (point to read_addr of a data channel)
-        &scanline_buffers[VBLANK], // read address (pattern pointer)
-        1,
-        false);
+    configure_vga_dma();
 
     // default graphics mode
     graphics_set_mode(CGA_320x200x4);
@@ -666,54 +803,72 @@ void graphics_init() {
 
     // assign buffer pointers into a single large array
     for (int i = 0; i < SCANLINE_BUFFERS; i++) {
-        scanline_buffers[i] = &scanline_buffer_mem[i * (scanline_bytes / 4)];
+        scanline_buffers[i] = &scanline_buffer_mem[i * (MAX_SCANLINE_BYTES / 4)];
     }
 
-    // prepare templates
-    constexpr uint8_t tmpl_active_video  = 0b11000000; // TMPL_LINE8
-#ifdef VGA_CSYNC
-    // --- CSYNC MODE (VHBBGGRR) ---
-    // HSync (bit 6) несет композитный сигнал.
-    // VSync (bit 7) всегда 1 (отключен/неактивен).
-    // Логика: XNOR (стандартная композитная синхра для VGA входов типа GBS-C/Scart).
-    constexpr uint8_t tmpl_hsync         = 0b10000000; // Обычная строка: импульс HSync = 0 (Bit6=0, Bit7=1)
-    constexpr uint8_t tmpl_vsync         = 0b10000000; // VSync строка: фон = 0 (Bit6=0, Bit7=1)
-    constexpr uint8_t tmpl_video_hv_sync = 0b11000000; // VSync строка: импульс (serration) = 1 (Bit6=1, Bit7=1)
-#else
-    // --- STANDARD VGA MODE (VHBBGGRR) ---
-    const uint8_t tmpl_hsync = tmpl_active_video ^ 0b01000000; // 10... (V=1, H=0)
-    const uint8_t tmpl_vsync = tmpl_active_video ^ 0b10000000; // 01... (V=0, H=1)
-    const uint8_t tmpl_video_hv_sync = tmpl_active_video ^ 0b11000000; // 00... (V=0, H=0)
-#endif
-
-    // base pointer to buffer memory as bytes
-    auto base_ptr = scanline_buffers[VBLANK];
-
-    // пустая строка (active video background)
-    memset(base_ptr, tmpl_active_video, scanline_bytes);
-
-    // выровненная синхра вначале
-    memset(base_ptr, tmpl_hsync, hsync_pulse_width_bytes);
-
-    // кадровая синхра (vsync)
-    base_ptr = scanline_buffers[VSYNC];
-    memset(base_ptr, tmpl_vsync, scanline_bytes);
-    memset(base_ptr, tmpl_video_hv_sync, hsync_pulse_width_bytes);
-
-    // заготовки для строк с изображением (copy blank template)
-    base_ptr = scanline_buffers[IMAGE];
-    memcpy(base_ptr, scanline_buffers[VBLANK], scanline_bytes);
-    /*
-    base_ptr = scanline_buffers[EVEN];
-    memcpy(base_ptr, scanline_buffers[BLANK], scanline_bytes);
-    */
+    build_sync_templates();
 }
 
 // -----------------------------------------------------------------------------
+/*
+ * Switch display timing.
+ *
+ * Everything stops first. The scanline interrupt, the two chained DMA
+ * channels and the state machine are all mid-flight in a line whose
+ * length is about to change, and letting any of them carry a stale count
+ * across the change is how the picture is lost for good rather than for a
+ * frame -- the chain simply stops and nothing restarts it.
+ *
+ * A few frames of black while this happens is the correct cost, and it
+ * only happens when a guest changes to or from a 720-pixel mode.
+ */
+static void apply_timing(const vga_timing_t *nt) {
+    if (nt->scanline_bytes == vt.scanline_bytes &&
+        nt->pixel_clock    == vt.pixel_clock) return;
+
+    irq_set_enabled(VGA_DMA_IRQ, false);
+
+    /*
+     * Clear both enables before aborting.
+     *
+     * These two channels chain to each other, and aborting one while the
+     * other can still trigger it means the abort never settles: the pair
+     * restarts itself from the chain and the reconfiguration lands on a
+     * channel that is already running again. Taking the enables away
+     * first stops the chain dead, and configure_vga_dma() writes them
+     * back as part of rewriting both descriptions.
+     */
+    hw_clear_bits(&dma_hw->ch[dma_data_channel].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    hw_clear_bits(&dma_hw->ch[dma_ctrl_channel].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+    dma_channel_abort(dma_data_channel);
+    dma_channel_abort(dma_ctrl_channel);
+    dma_hw->ints0 = (1u << dma_ctrl_channel) | (1u << dma_data_channel);
+
+    pio_sm_set_enabled(PIO_VGA, sm, false);
+    pio_sm_clear_fifos(PIO_VGA, sm);
+
+    vt = *nt;
+
+    pio_sm_set_clkdiv(PIO_VGA, sm, (float)clock_get_hz(clk_sys) / vt.pixel_clock);
+    build_sync_templates();
+    configure_vga_dma();
+
+    pio_sm_set_enabled(PIO_VGA, sm, true);
+    dma_channel_set_irq0_enabled(dma_ctrl_channel, true);
+    irq_set_enabled(VGA_DMA_IRQ, true);
+
+    // Started the same way init does: the data channel first, which
+    // chains to the control channel and from there runs on its own.
+    dma_start_channel_mask(1u << dma_data_channel);
+}
+
 void graphics_set_mode(const enum graphics_mode_t mode) {
     // Derived once per switch into composite rather than per scanline;
     // it is floating point and the renderer runs in an interrupt.
     if (mode == COMPOSITE_160x200x16) build_composite_palette();
+
+    // Hercules is the only thing here wider than 640.
+    apply_timing((mode == HERC_720x348x2) ? &timing_720x480 : &timing_640x480);
 
     graphics_mode = mode;
 }

@@ -65,6 +65,21 @@ typedef struct {
      * emitting, not what is plugged into it.
      */
     uint8_t composite;
+
+    /*
+     * Hercules, 0 = no, 1 = yes.
+     *
+     * A boot-time choice because it costs memory: the framebuffer sits at
+     * 0xB0000, inside the 736K this machine normally offers, so enabling
+     * it leaves the guest 704K. Deciding at boot means the BIOS counts
+     * the smaller figure and DOS never sees memory disappear underneath
+     * it -- which is exactly what would happen if a program could claim
+     * the range after the count had already been taken.
+     *
+     * The card is then still only selected when software asks for it
+     * through the mode register.
+     */
+    uint8_t hercules;
     char fda[256];           // Floppy #1 filename (увеличено для длинных путей)
     char fdb[256];           // Floppy #2 filename
     char hdd[256];           // HDD filename

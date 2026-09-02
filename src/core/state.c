@@ -68,6 +68,9 @@ uart_16550_s uart __attribute__((aligned(4))) = {
 
 mc6845_s mc6845 __attribute__((aligned(4)));
 cga_s cga __attribute__((aligned(4)));
+
+// Lowered to 0xB0000 when Hercules claims its framebuffer.
+uint32_t ram_limit = RAM_SIZE;
 ide_s ide __attribute__((aligned(4)));
 
 // IMPORTANT! Dont remove, hack to create .flashdata section for linker

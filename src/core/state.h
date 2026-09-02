@@ -166,6 +166,18 @@ typedef struct {
      * what a plain CGA leaves them as, so nothing changes for a machine
      * that never writes the register.
      */
+    /*
+     * Hercules mode register (0x3B8) and configuration switch (0x3BF).
+     *
+     * 0x3BF bit 0 is the card's own safety catch: graphics are refused
+     * until it is set, because the framebuffer overlaps memory an MDA
+     * machine may be using for something else. Software that wants
+     * Hercules graphics has to enable it deliberately, which makes it a
+     * reliable thing to key the mode off.
+     */
+    uint8_t herc_mode;
+    uint8_t herc_config;
+
     uint32_t tandy_crt_base;
     uint32_t tandy_cpu_base;
     bool updated;

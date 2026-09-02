@@ -27,11 +27,23 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
 
 extern cga_s cga;   // state.c; the Tandy page register lives in it
 
+/*
+ * Top of conventional memory.
+ *
+ * 736K normally, which runs to 0xB8000 and leaves the CGA window above
+ * it. Hercules puts its framebuffer at 0xB0000, inside that, so enabling
+ * it lowers the ceiling to 0xB0000 and gives the 32K to the display
+ * instead -- 704K of guest memory. Moving the limit rather than adding a
+ * test keeps the cost off the hot path: every access already compares
+ * against it.
+ */
+extern uint32_t ram_limit;
+
 // ============================================================================
 // Memory Read (16-bit)
 // ============================================================================
 __force_inline static uint16_t memory_read(const uint32_t address) {
-    if (address < RAM_SIZE) {
+    if (address < ram_limit) {
         return *(uint16_t *)&RAM[address];
     }
 
@@ -39,6 +51,11 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         // + the Tandy CPU page, which is zero unless something set it.
         return *(uint16_t *)&VIDEORAM[(cga.tandy_cpu_base + (address & 0x7FFF))
                                       & (VIDEORAM_SIZE - 1)];
+    }
+
+    // Only reachable once the ceiling has been lowered for Hercules.
+    if ((address - 0xB0000) < 0x8000) {
+        return *(uint16_t *)&VIDEORAM[address - 0xB0000];
     }
 
     if ((address - 0xC8000) < 8192) {
@@ -77,7 +94,7 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
 // Memory Write (16-bit with BHE support)
 // ============================================================================
 __force_inline static void memory_write(const uint32_t address, const uint16_t data, const bool bhe) {
-    if (address < RAM_SIZE) {
+    if (address < ram_limit) {
         write_to(RAM, address, data, bhe);
         return;
     }
@@ -85,6 +102,12 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
     if ((address - 0xB8000) < 0x8000) {
         write_to(VIDEORAM, (cga.tandy_cpu_base + (address & 0x7FFF))
                            & (VIDEORAM_SIZE - 1), data, bhe);
+        return;
+    }
+
+    // Only reachable once the ceiling has been lowered for Hercules.
+    if ((address - 0xB0000) < 0x8000) {
+        write_to(VIDEORAM, address - 0xB0000, data, bhe);
         return;
     }
 

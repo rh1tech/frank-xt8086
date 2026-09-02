@@ -54,6 +54,7 @@ static const MenuItem menu_items[] = {
     {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
     {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
+    {"Hercules",         ARRAY, &settings.hercules,       nullptr, 1, {"No", "Yes"}},
     {"Date and time",    ACTION, clock_text, nullptr, 0},
     {""},
     {"Drives",          .colors = {UI_YELLOW, UI_WIN_BG}},
