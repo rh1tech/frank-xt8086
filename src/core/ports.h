@@ -3,6 +3,28 @@
 
 
 #include "state.h"
+
+// Tracing the CRTC is useful exactly once — when a BIOS programs a mode the
+// video driver does not expect — and ruinous every other time.
+//
+// port_write() runs inside the PIO write handler, at the highest interrupt
+// priority, with the 8086 held in a wait state until it returns. One
+// forty-character line at 115200 baud is about 3.5 ms of stalled CPU, and
+// programming a mode writes sixteen registers back to back.
+//
+// This was survivable on the prototype because stdio there was USB CDC,
+// which discards output when no host is attached. UART0 does not: the FIFO
+// drains at the wire rate whether or not anyone is listening, so the cost
+// is now paid on every boot of every board.
+//
+// Same shape as DEBUG_I8237 and friends in chipset/, so there is one habit
+// to learn rather than four.
+//#define DEBUG_MC6845
+#if defined(DEBUG_MC6845)
+#define crtc_log(...) printf(__VA_ARGS__)
+#else
+#define crtc_log(...)
+#endif
 #include "i8237.h"
 #include "i8253.h"
 #include "i8259.h"
@@ -181,7 +203,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             mc6845.registers[crtc_index] = data;
 
             if (crtc_index < 0xc)
-                printf("MC6845 register %x (%d) : %x (%d) \n", crtc_index, crtc_index, data, data);
+                crtc_log("MC6845 register %x (%d) : %x (%d) \n", crtc_index, crtc_index, data, data);
 
             // TODO: Сразу вычислять поинтер  VIDEORAM чтобы в потребителе не тратить времея на вычисления
             mc6845.vram_offset = (mc6845.r.start_addr_h << 8 | mc6845.r.start_addr_l) << 1;

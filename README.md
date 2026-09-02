@@ -145,9 +145,29 @@ UART RX to J1 pin 1, grounds common.
 This is the single biggest thing the new board changes. On the prototype
 the console needed the USB controller as a CDC device and a USB keyboard
 needed it as a host, so every build was one or the other; here J1 is a
-real UART and both are live at once. `SERIAL_CONSOLE=ON` additionally
-mirrors the 80x25 text screen over that line and injects what you type as
-XT scancodes, which is how to drive the machine with no keyboard attached.
+real UART and both are live at once.
+
+A default build prints a boot banner and then only reports events — mode
+changes, missing images. `SERIAL_CONSOLE=ON` adds a screen mirror and
+keystroke injection on the same line, which is how to drive the machine
+with no keyboard attached. It is **off until you turn it on**, by these
+single-key commands:
+
+| Key | Does |
+|-----|------|
+| `` ` `` | toggle the 80x25 screen mirror |
+| `C` | toggle CTTY mode — typing goes to the emulated COM1 instead of the keyboard |
+| `R` | reset the 8086 |
+| `B` | reboot the RP2350 into BOOTSEL |
+| `M` | dump memory from a base address you are prompted for |
+| `V` | dump video memory from a base address |
+
+Anything else you type is translated to XT scancodes and handed to the
+BIOS as a keypress, arrow keys included.
+
+The mirror sends CP437 bytes raw, so a terminal set to UTF-8 renders the
+box-drawing characters as replacement glyphs. Set the terminal to CP437
+or latin-1 if that matters; the text is legible either way.
 
 ### HDMI capture — seeing the screen from a script
 

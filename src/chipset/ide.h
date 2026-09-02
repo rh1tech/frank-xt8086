@@ -310,7 +310,10 @@ __force_inline static void handle_command(const uint8_t cmd) {
             break;
 
         default:
-            printf("IDE: Unknown command 0x%02X - ABORTED\n", cmd);
+            // debug_log, not printf: this is reachable from the bus
+            // interrupt handler, and an unrecognised command from a
+            // confused BIOS can repeat every cycle.
+            debug_log("IDE: Unknown command 0x%02X - ABORTED\n", cmd);
             ide_set_error(0x04);
             break;
     }
