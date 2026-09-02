@@ -192,23 +192,21 @@ bool handleScancode(const uint8_t ps2scancode) {
         .psram_mhz       = PSRAM_FREQ_HZ / MHZ,
         .sd_ok           = sd_ok,
         .cpu8086_present = cpu.present && cpu.vector_ok,
+        .cpu8086_seen    = cpu.present,
+        .cpu8086_addr    = cpu.first_addr,
         .cpu8086_khz     = cpu_khz,
     };
 
-    // A CPU that answered but from the wrong address is a fault worth
-    // stopping for: it means the address bus is miswired or the part is
-    // damaged, and letting the BIOS run into that produces a confusing
-    // hang instead of a clear message. A CPU that said nothing at all is
-    // reported on the splash and allowed through, because the rest of the
-    // board is still worth using.
-    if (cpu.present && !cpu.vector_ok) {
-        char detail[64];
-        snprintf(detail, sizeof detail, "First fetch was %05lX, expected %05X",
-                 (unsigned long)cpu.first_addr, I8086_RESET_VECTOR);
-        screen_fatal(" CPU Fault ", "The 8086 is not fetching its reset vector.",
-                     detail);
-    }
-
+    // Reported, never fatal.
+    //
+    // This started out stopping the boot on a wrong reset vector, on the
+    // grounds that a miswired address bus is worth refusing to run. That
+    // was wrong twice over: the probe can misread, and it did — a warm
+    // reset leaves the 8086 frozen mid-cycle and its stale bus state was
+    // being captured as the first fetch — and a machine that boots fine is
+    // then held at a red screen by its own diagnostic. A check that can
+    // brick a working board is worse than no check. It goes on the splash
+    // and the boot continues.
     // The splash doubles as the window in which an operator can ask for
     // SETUP. No key pressed means nobody is watching, so boot.
     const bool wants_setup = screen_splash(&info, SPLASH_HOLD_MS);

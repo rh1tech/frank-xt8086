@@ -43,6 +43,24 @@ static bool any_key(void) {
     return getchar_timeout_us(0) != PICO_ERROR_TIMEOUT;
 }
 
+/*
+ * Throw away input that arrived before anyone was asked a question.
+ *
+ * Attaching a host to the console is not a keypress, but it looks like
+ * one: opening the port toggles DTR and RTS, and the probe puts a byte or
+ * a break onto the target's RX as a result. Without this, plugging in a
+ * terminal dismisses the splash instantly and drops the operator into
+ * SETUP they did not ask for — and on the bench, where the console is
+ * attached at exactly the moment the board is reset, that is every boot.
+ *
+ * Stale HID state goes the same way, for the same reason.
+ */
+static void drain_input(void) {
+    while (getchar_timeout_us(0) != PICO_ERROR_TIMEOUT) { }
+    keyboard_tick();
+    current_scancode = 0;
+}
+
 // ---------------------------------------------------------------------------
 // Splash
 // ---------------------------------------------------------------------------
@@ -69,11 +87,12 @@ bool screen_splash(const splash_info_t *info, const uint32_t hold_ms) {
 
     snprintf(line, sizeof line, "Version %s", FIRMWARE_VERSION);
     ui_text_center_in(x, SPLASH_W, y + 4, line, UI_ATTR_WINDOW);
-    ui_text_center_in(x, SPLASH_W, y + 5, "Mikhail Matveev", UI_ATTR_WINDOW);
+    ui_text_center_in(x, SPLASH_W, y + 5,
+                      "by Mikhail Matveev, xrip, DnCraptor", UI_ATTR_WINDOW);
     ui_text_center_in(x, SPLASH_W, y + 6,
                       "github.com/rh1tech/frank-xt8086", UI_ATTR_WINDOW);
 
-    snprintf(line, sizeof line, "RP2350B %lu MHz   PSRAM %lu MHz",
+    snprintf(line, sizeof line, "RP2350B, %lu/%lu overclock",
              (unsigned long)info->cpu_mhz, (unsigned long)info->psram_mhz);
     ui_text_center_in(x, SPLASH_W, y + 8, line,
                       UI_ATTR(UI_LIGHTCYAN, UI_WIN_BG));
@@ -87,6 +106,14 @@ bool screen_splash(const splash_info_t *info, const uint32_t hold_ms) {
                  (unsigned long)((info->cpu8086_khz % 1000u) / 10u));
         ui_text_center_in(x, SPLASH_W, y + 9, line,
                           UI_ATTR(UI_LIGHTGREEN, UI_WIN_BG));
+    } else if (info->cpu8086_seen) {
+        // It drove the bus, just not where an 8086 out of reset should.
+        // Worth distinguishing from silence: this is a wiring or a part
+        // fault, not an empty socket.
+        snprintf(line, sizeof line, "CPU fetched %05lX, expected %05X",
+                 (unsigned long)info->cpu8086_addr, 0xFFFF0u);
+        ui_text_center_in(x, SPLASH_W, y + 9, line,
+                          UI_ATTR(UI_LIGHTRED, UI_WIN_BG));
     } else {
         ui_text_center_in(x, SPLASH_W, y + 9, "NO CPU DETECTED",
                           UI_ATTR(UI_LIGHTRED, UI_WIN_BG));
@@ -108,6 +135,7 @@ bool screen_splash(const splash_info_t *info, const uint32_t hold_ms) {
     // plasma steps once per frame; 16 ms a frame is close enough to the
     // 60 Hz the display is running at that it looks smooth without
     // needing to synchronise to it.
+    drain_input();
     const absolute_time_t deadline = make_timeout_time_ms(hold_ms);
     int frame = 0;
     while (absolute_time_diff_us(get_absolute_time(), deadline) > 0) {
@@ -169,6 +197,7 @@ void screen_warning(const char *title, const char *message,
     printf("[xt8086] warning: %s -- %s\n", title, message);
     if (detail && *detail) printf("         %s\n", detail);
 
+    drain_input();
     const absolute_time_t deadline = make_timeout_time_ms(hold_ms);
     while (absolute_time_diff_us(get_absolute_time(), deadline) > 0) {
         if (any_key()) break;

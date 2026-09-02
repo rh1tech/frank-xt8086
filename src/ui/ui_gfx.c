@@ -115,7 +115,11 @@ void ui_window(const int x, const int y, const int w, const int h,
             memcpy(buf + 1, title, (size_t)n);
             buf[n + 1] = ' ';
             buf[n + 2] = '\0';
-            ui_text_center_in(x, w, y, buf, UI_ATTR_TITLE);
+            // Title colour follows the window it sits on: yellow on
+            // whatever the border's background is. Hardcoding the house
+            // blue here put a blue title bar on the red error box.
+            const uint8_t title_attr = UI_ATTR(UI_YELLOW, border_attr >> 4);
+            ui_text_center_in(x, w, y, buf, title_attr);
         }
     }
 }

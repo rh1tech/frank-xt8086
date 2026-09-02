@@ -30,6 +30,8 @@ typedef struct {
     uint32_t psram_bytes;     // 0 if the PSRAM did not answer
     bool     sd_ok;           // card mounted
     bool     cpu8086_present; // the 8086 fetched its reset vector
+    bool     cpu8086_seen;    // ...or at least drove a memory cycle
+    uint32_t cpu8086_addr;    // the address it drove, when that went wrong
     uint32_t cpu8086_khz;     // clock it is being given
 } splash_info_t;
 

@@ -31,34 +31,61 @@
 cpu_probe_result_t cpu_probe(const uint32_t khz, const uint32_t timeout_ms) {
     cpu_probe_result_t r = { 0 };
 
-    // Hold the CPU in reset while the bus is brought up, so it cannot
-    // start a cycle into a state machine that is not listening yet.
+    /*
+     * Order matters here, and getting it wrong produces a false negative
+     * that looks exactly like a dead CPU.
+     *
+     * On a warm reset — the debugger restarting the RP2350, rather than
+     * power being applied — the 8086 is not in a clean state. It was
+     * mid-instruction when its clock stopped, and it sits there with
+     * whatever it last drove still on the bus. Enabling the state machine
+     * before that is cleared captures the stale cycle as if it were the
+     * first fetch, and the probe reports an 8086 fetching 0x00000.
+     *
+     * So: assert reset and restore the clock first, let the part actually
+     * see some clocks with reset held, and only then start listening.
+     */
     gpio_init(RESET_PIN);
     gpio_set_dir(RESET_PIN, GPIO_OUT);
     gpio_put(RESET_PIN, 1);
 
+    start_cpu_clock(khz);
+
+    // The 8086 wants RESET held for at least four clocks. At the slowest
+    // speed this firmware offers, 1 MHz, ten milliseconds is ten thousand.
+    busy_wait_ms(10);
+
     const uint offset = pio_add_program(BUS_CTRL_PIO, &i8086_bus_program);
     i8086_bus_program_init(BUS_CTRL_PIO, BUS_CTRL_SM, offset);
     pio_sm_clear_fifos(BUS_CTRL_PIO, BUS_CTRL_SM);
+    for (uint i = 0; i < 4; i++) pio_interrupt_clear(BUS_CTRL_PIO, i);
     pio_sm_set_enabled(BUS_CTRL_PIO, BUS_CTRL_SM, true);
 
-    start_cpu_clock(khz);
-
-    // The 8086 wants RESET held for at least four clocks; ten is free.
-    // Then it takes a few more to run its internal reset sequence before
-    // the first fetch appears.
-    busy_wait_ms(10);
     gpio_put(RESET_PIN, 0);
 
     const absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     while (absolute_time_diff_us(get_absolute_time(), deadline) > 0) {
         if (!pio_sm_is_rx_fifo_empty(BUS_CTRL_PIO, BUS_CTRL_SM)) {
             const uint32_t bus_state = BUS_CTRL_PIO->rxf[BUS_CTRL_SM];
+            const uint32_t addr = bus_state & 0xFFFFF;
+
+            /*
+             * Scan the window rather than trusting cycle zero.
+             *
+             * A capture is only interesting if M/IO says memory: the first
+             * thing an 8086 does out of reset is a memory read, and it has
+             * no reason to touch I/O space until a BIOS tells it to. That
+             * one test discards the electrical noise that releasing RESET
+             * puts on ALE, which would otherwise latch an all-zero address
+             * off a bus nothing is driving yet.
+             */
+            if (!(bus_state & MIO)) continue;
+
             if (r.cycles++ == 0) {
                 r.present    = true;
-                r.first_addr = bus_state & 0xFFFFF;
-                r.vector_ok  = r.first_addr == I8086_RESET_VECTOR;
+                r.first_addr = addr;
             }
+            if (addr == I8086_RESET_VECTOR) r.vector_ok = true;
             // Keep draining so a CPU that is running does not wedge the
             // state machine on a full FIFO; the count is a liveness signal
             // in its own right. The CPU stays stalled in a wait state
