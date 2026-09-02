@@ -25,6 +25,7 @@
 #pragma once
 
 #include <pico/stdio.h>
+#include <pico/bootrom.h>   // the console's 'B' key drops to BOOTSEL
 
 #include "state.h"      // VIDEORAM, the 16550 model the console types into
 #include "graphics.h"   // TEXTMODE_80x25_COLOR
