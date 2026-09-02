@@ -93,7 +93,37 @@ add_subdirectory(${SRC_ROOT}/drivers/audio    drivers/audio)
 add_subdirectory(${SRC_ROOT}/core             core)
 add_subdirectory(${SRC_ROOT}/ui               ui)
 
+# Assemble the option ROM, and make the firmware depend on it.
+#
+# NASM produces the code; tools/rom/build.py pads it to a whole number of
+# 512-byte blocks and fixes the checksum byte the BIOS verifies.
+find_program(NASM nasm)
+if(NASM)
+    add_custom_command(
+            OUTPUT  ${FW_ROOT}/roms/xtrom.bin
+            COMMAND ${CMAKE_COMMAND} -E env python3
+                    ${FW_ROOT}/tools/rom/build.py ${FW_ROOT}/roms/xtrom.bin
+            DEPENDS ${FW_ROOT}/tools/rom/xtrom.asm ${FW_ROOT}/tools/rom/build.py
+            COMMENT "Assembling the option ROM")
+    add_custom_target(xtrom DEPENDS ${FW_ROOT}/roms/xtrom.bin)
+else()
+    # The committed binary is used as-is. Editing the .asm then has no
+    # effect, which is worth saying out loud rather than discovering.
+    message(WARNING "nasm not found: roms/xtrom.bin will not be rebuilt")
+    add_custom_target(xtrom)
+endif()
+
 add_executable(frank-xt8086 main.c)
+add_dependencies(frank-xt8086 xtrom)
+
+# .incbin creates no dependency CMake can see, so nothing rebuilds when an
+# embedded binary changes -- the firmware just keeps the copy it was last
+# linked against, and the only symptom is a ROM whose behaviour does not
+# match its source. Declared here rather than in core/, because
+# OBJECT_DEPENDS is directory-scoped and state.c compiles in this one.
+set_source_files_properties(${SRC_ROOT}/core/state.c PROPERTIES
+        OBJECT_DEPENDS
+        "${FW_ROOT}/roms/GLABIOS.ROM;${FW_ROOT}/roms/ide_xt.bin;${FW_ROOT}/roms/os.img;${FW_ROOT}/roms/xtrom.bin;${FW_ROOT}/tools/dos/setclock.com;${FW_ROOT}/tools/dos/setrtc.com")
 
 # The 8086 bus controller. Generated into src/core/ so an editor resolves
 # "i8086_bus.pio.h" the same way the compiler does.

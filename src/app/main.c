@@ -31,6 +31,7 @@
 #include "uart16550.h"
 #include "mc146818.h"
 #include "adlib.h"
+#include "redirector.h"
 #include "audio.h"
 
 #include "ff.h"
@@ -424,6 +425,7 @@ bool handleScancode(const uint8_t ps2scancode) {
         // 5.8 ms and the frame tick is 16.6 ms apart, so refilling there
         // would underrun twice out of every three blocks.
         audio_task();
+        redirector_task();   // core 0: the guest is spinning while this runs
 
         if (osd_requested) {
             osd_requested = false;

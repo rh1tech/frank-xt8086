@@ -22,6 +22,7 @@ target_sources(xt8086_core INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/state.c
         ${CMAKE_CURRENT_LIST_DIR}/../chipset/mc146818.c
         ${CMAKE_CURRENT_LIST_DIR}/../chipset/adlib.c
+        ${CMAKE_CURRENT_LIST_DIR}/../chipset/redirector.c
 )
 
 target_include_directories(xt8086_core INTERFACE
