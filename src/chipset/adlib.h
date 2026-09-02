@@ -60,10 +60,14 @@ uint8_t adlib_status(void);
 // ---------------------------------------------------------------------------
 
 /*
- * Render `nsamples` mono samples, signed 16-bit, into `out`.
+ * Render `nsamples` mono samples into `out`.
+ *
+ * 32-bit, because EMU8950_LINEAR selects OPL_calc_buffer_linear() and
+ * that is the width it produces -- and the mixer sums in 32 bits anyway,
+ * so taking it in the native width saves a copy and a clip.
  *
  * Returns false when there is nothing to render — no chip, or the guest
  * has never touched the card — so the caller can skip mixing entirely
  * and a machine that never plays a note costs nothing.
  */
-bool adlib_render(int16_t *out, uint32_t nsamples);
+bool adlib_render(int32_t *out, uint32_t nsamples);

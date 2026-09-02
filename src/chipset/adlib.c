@@ -57,8 +57,8 @@ uint8_t adlib_status(void) {
                      + (timer_reg & 0x02) * 0x10);    // timer 2 expired
 }
 
-bool adlib_render(int16_t *out, const uint32_t nsamples) {
+bool adlib_render(int32_t *out, const uint32_t nsamples) {
     if (!opl || !touched) return false;
-    OPL_calc_buffer(opl, out, nsamples);
+    OPL_calc_buffer_linear(opl, out, nsamples);
     return true;
 }

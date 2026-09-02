@@ -89,6 +89,7 @@ add_subdirectory(${SRC_ROOT}/drivers/usbhid   drivers/usbhid)
 add_subdirectory(${SRC_ROOT}/drivers/psram    drivers/psram)
 add_subdirectory(${SRC_ROOT}/drivers/rtc      drivers/rtc)
 add_subdirectory(${SRC_ROOT}/drivers/opl2     drivers/opl2)
+add_subdirectory(${SRC_ROOT}/drivers/audio    drivers/audio)
 add_subdirectory(${SRC_ROOT}/core             core)
 add_subdirectory(${SRC_ROOT}/ui               ui)
 

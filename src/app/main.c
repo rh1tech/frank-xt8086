@@ -13,7 +13,6 @@
  * src/core/cpu_bus.c that actually answer the CPU — core 1 only raises INTR.
  */
 
-#include <hardware/pwm.h>
 #include <hardware/structs/qmi.h>
 #include <pico/multicore.h>
 
@@ -31,6 +30,7 @@
 #include "uart16550.h"
 #include "mc146818.h"
 #include "adlib.h"
+#include "audio.h"
 
 #include "ff.h"
 #include "f_util.h"
@@ -49,23 +49,7 @@ uint8_t current_scancode = 0; // 0 = нет данных
 // FDC reads this to decide between the SD file and the built-in bootOS
 // image; see src/chipset/i8272.h.
 uint8_t fdd_media_mask = 0;
-pwm_config pwm;
 FATFS fs;
-
-// PWM prescaler for the speaker. 127 keeps the counter's base rate low
-// enough that a 500 Hz wrap still fits in sixteen bits at 504 MHz, which
-// is the bottom of the range the PC speaker ever asks for.
-#define BEEPER_CLKDIV 127
-
-// One tone, then silence. Held on the caller's thread, which is fine —
-// every use is during bring-up, before core 1 has the bus.
-static void beep(const uint slice, const uint32_t pwm_base_hz,
-                 const uint32_t freq_hz, const uint32_t ms) {
-    const uint16_t wrap = (uint16_t)(pwm_base_hz / freq_hz);
-    pwm_set_wrap(slice, wrap);
-    pwm_set_gpio_level(BEEPER_PIN, wrap / 2);   // 50 % for full AC swing
-    sleep_ms(ms);
-}
 
 // How long the splash is held before booting on its own. Long enough to
 // read the hardware report, short enough that a headless board is not
@@ -151,8 +135,11 @@ bool handleScancode(const uint8_t ps2scancode) {
     // once the 8086 is running nothing on this path may.
     cmos_init();
 
-    // The OPL2 allocates, so it also belongs before core 1 starts.
+    // The OPL2 allocates, so it also belongs before core 1 starts. The
+    // DAC likewise claims DMA channels and takes over GP46, which the
+    // guest can start writing to the moment the CPU is out of reset.
     adlib_init(AUDIO_RATE_HZ);
+    audio_init();
 
     // The host stack going up is worth one line: it separates "no
     // keyboard plugged in" from "host mode never started", and those two
@@ -269,31 +256,20 @@ bool handleScancode(const uint8_t ps2scancode) {
         ide.disk_image = nullptr;
     }
 
-    pwm = pwm_get_default_config();
-    gpio_set_function(BEEPER_PIN, GPIO_FUNC_PWM);
-    pwm_config_set_clkdiv(&pwm, BEEPER_CLKDIV);
-    pwm_init(pwm_gpio_to_slice_num(BEEPER_PIN), &pwm, true);
-
     // A short two-note chime, so "it booted" is audible from across the
-    // bench without watching the screen.
+    // bench without watching the screen. Through the mixer now, like
+    // everything else that makes a sound.
     //
     // BEEPER_SWEEP replaces it with the prototype's 500 Hz-5 kHz ramp,
-    // which existed to ear-pick the transducer's resonance peak. That is a
-    // measurement, not a boot sound: it holds the boot for a second and a
-    // half and it only ever needs running once per new buzzer part.
-    {
-        const uint slice = pwm_gpio_to_slice_num(BEEPER_PIN);
-        const uint32_t pwm_base_hz = PICO_CLOCK_SPEED / BEEPER_CLKDIV;
+    // which existed to ear-pick the transducer's resonance peak. That is
+    // a measurement, not a boot sound: it holds the boot for a second and
+    // a half and only ever needs running once per new buzzer part.
 #ifdef BEEPER_SWEEP
-        for (uint32_t f = 500; f <= 5000; f += 250) {
-            beep(slice, pwm_base_hz, f, 80);
-        }
+    for (uint32_t f = 500; f <= 5000; f += 250) audio_beep(f, 80);
 #else
-        beep(slice, pwm_base_hz, 1000, 60);
-        beep(slice, pwm_base_hz, 1500, 90);
+    audio_beep(1000, 60);
+    audio_beep(1500, 90);
 #endif
-        pwm_set_gpio_level(BEEPER_PIN, 0);
-    }
 
     // Запуск второго ядра с i8086
     multicore_launch_core1(bus_handler_core);
@@ -341,6 +317,11 @@ bool handleScancode(const uint8_t ps2scancode) {
                 }
             }
         }
+
+        // Audio, every pass rather than on the frame tick: a block is
+        // 5.8 ms and the frame tick is 16.6 ms apart, so refilling there
+        // would underrun twice out of every three blocks.
+        audio_task();
 
         // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {

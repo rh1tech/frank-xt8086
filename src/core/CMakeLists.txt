@@ -37,6 +37,7 @@ target_link_libraries(xt8086_core INTERFACE
         fatfs
         rtc
         opl2
+        audio
         usbhid
         psram
         pico_stdlib

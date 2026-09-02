@@ -33,6 +33,7 @@
 #include "uart16550.h"
 #include "mc146818.h"
 #include "adlib.h"
+#include "audio.h"
 #include "graphics.h"
 #include "hardware/pwm.h"
 // ============================================================================
@@ -153,18 +154,14 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             return;
         }
         case 0x61: {
-            // System Control Port B (8255 PPI Port B).
-            // Speaker enable = bits 0,1 both set. Use 50% duty against the
-            // current PWM wrap so the magnetic transducer gets a real square
-            // wave at the i8253 channel-2 frequency. Reading the slice's
-            // current top register avoids hardcoding the duty value.
-            if ((data & 3) == 3) {
-                const uint slice = pwm_gpio_to_slice_num(BEEPER_PIN);
-                const uint16_t top = pwm_hw->slice[slice].top;
-                pwm_set_gpio_level(BEEPER_PIN, top / 2);
-            } else {
-                pwm_set_gpio_level(BEEPER_PIN, 0);
-            }
+            // System Control Port B (8255 PPI Port B). Bits 0 and 1
+            // together gate the speaker: bit 0 is the PIT channel-2 gate,
+            // bit 1 the driver enable.
+            //
+            // Recorded, not acted on. GP46 is a PWM DAC now and the square
+            // wave is synthesised on core 0; this runs in the bus
+            // interrupt and has no business touching a peripheral.
+            audio_speaker_gate((data & 3) == 3);
 
             // Бит 7: Clear keyboard (IBM PC XT standard)
             if ((data & 0x80) && !(port61 & 0x80)) {
