@@ -262,5 +262,9 @@ installed.
 
 ## Licence
 
-GPL-3.0-or-later. FatFs, the SD card driver and the VGA driver carry their
-own notices; see the files.
+GPL-3.0-or-later.
+
+Third-party code keeps its own terms: FatFs (ChaN, BSD-style), the SD card
+and VGA drivers, and the three ROM images in `roms/` — GLaBIOS (GPL-3.0),
+XTIDE Universal BIOS (GPL-2.0) and bootOS (MIT). See `roms/README.md` and
+the notices in the files themselves.
