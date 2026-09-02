@@ -150,6 +150,10 @@ static uint8_t guest_peek(const uint16_t seg, const uint16_t off) {
     return pa < RAM_SIZE ? RAM[pa] : 0xFF;
 }
 
+static uint8_t guest_peek_lin(const uint32_t pa) {
+    return pa < RAM_SIZE ? RAM[pa] : 0xFF;
+}
+
 static void guest_poke(const uint16_t seg, const uint16_t off, const uint8_t v) {
     const uint32_t pa = ((uint32_t)seg << 4) + off;
     if (pa < RAM_SIZE) RAM[pa] = v;
@@ -176,7 +180,22 @@ static void fn_disk_info(void) {
     ok();
 }
 
+/*
+ * Where the Swappable Data Area lives in guest memory.
+ *
+ * DOS hands it over once, in BX:DX on the installation check, and every
+ * other function needs it: the filename being operated on, the caller's
+ * DTA and the search block all live inside it. Without it none of the
+ * file operations can be implemented at all.
+ */
+static uint32_t sda_addr;
+
 static void fn_install_check(void) {
+    if (regs.bx || regs.dx) {
+        sda_addr = ((uint32_t)regs.bx << 4) + regs.dx;
+        printf("[redir] SDA at %04X:%04X (linear %05lX)\n",
+               regs.bx, regs.dx, (unsigned long)sda_addr);
+    }
     // AL non-zero means "a redirector is here". 0xFF is the conventional
     // answer; DOS only tests for non-zero.
     regs.ax = (regs.ax & 0xFF00u) | 0xFFu;

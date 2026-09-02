@@ -206,6 +206,27 @@ install:
         int     21h                     ; DS:DX = ours
         pop     ds
 
+        ; Tell the firmware where the Swappable Data Area is.
+        ;
+        ; Every later call reads the filename, the DTA pointer and the
+        ; search block out of it, and the SDA address is only obtainable
+        ; from DOS -- INT 21h AX=5D06h. The redirector interface passes it
+        ; exactly once, in BX:DX on the installation check, which is why
+        ; that call is issued here rather than waited for.
+        ;
+        ; It goes through INT 2Fh, so it lands in the handler installed
+        ; above, and reaches the firmware by the same route as everything
+        ; else.
+        mov     ax, 5D06h
+        int     21h                     ; DS:SI = SDA
+        push    ds
+        pop     bx                      ; BX = SDA segment
+        mov     dx, si                  ; DX = SDA offset
+        push    cs
+        pop     ds
+        mov     ax, 1100h
+        int     2Fh
+
         mov     dx, msg_ok
         mov     ah, 09h
         int     21h
