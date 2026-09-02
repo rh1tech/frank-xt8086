@@ -26,6 +26,11 @@ IMPORT_BIN("roms/ide_xt.bin", IDE);
 // IMPORT_BIN("roms/checkit.img", FLOPPY);
 IMPORT_BIN("roms/os.img", FLOPPY);
 
+// The DOS-side clock utility, planted on the card at boot. Built from
+// tools/dos/setclock.asm; see media_plant_tools() in app/main.c.
+IMPORT_BIN("tools/dos/setclock.com", SETCLOCK);
+IMPORT_BIN("tools/dos/setrtc.com", SETRTC);
+
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));
 uint8_t UMB[UMB_SIZE] __attribute__((aligned(4), section(".psram")));

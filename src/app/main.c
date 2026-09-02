@@ -66,6 +66,46 @@ static bool sd_mounted;
  * the IDE model follows ide.disk_image, so both see the new state on
  * their next access with nothing else to notify.
  */
+/*
+ * Put the DOS-side tools on the card, next to the disk images.
+ *
+ * Note what this does *not* do: DOS cannot see them here. The guest only
+ * ever sees the contents of the .img files, and /XT is the host
+ * filesystem those images live in. Getting a file into DOS means writing
+ * it inside an image, which would mean mounting that image as a second
+ * FatFs volume and writing into someone's disk -- and a firmware that
+ * silently modifies a disk image on every boot is a firmware that will
+ * eventually corrupt one. See the README for how to install them.
+ *
+ * They are written here anyway because it is the one place guaranteed to
+ * hold the versions this firmware was built against, so whatever route
+ * they take into the guest, they cannot fall out of step with the CMOS
+ * emulation they talk to.
+ *
+ * Rewritten every boot rather than only when missing, for the same
+ * reason. Together they are under a kilobyte.
+ */
+static void plant(const char *path, const uint8_t *data, const uint32_t len) {
+    FIL f;
+    if (FR_OK != f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS)) {
+        printf("[media] could not write %s\n", path);
+        return;
+    }
+    UINT wrote = 0;
+    f_write(&f, data, (UINT)len, &wrote);
+    f_close(&f);
+    printf("[media] %s written (%u bytes, host-side)\n", path, wrote);
+}
+
+static void media_plant_tools(void) {
+    extern uint8_t SETCLOCK[], SETRTC[];
+    extern const uint32_t _sizeof_SETCLOCK, _sizeof_SETRTC;
+
+    f_mkdir("/XT");   // harmless if it exists
+    plant("/XT/SETCLOCK.COM", SETCLOCK, (uint32_t)(uintptr_t)&_sizeof_SETCLOCK);
+    plant("/XT/SETRTC.COM",   SETRTC,   (uint32_t)(uintptr_t)&_sizeof_SETRTC);
+}
+
 void media_reload(void) {
     if (fdd_media_mask & 1u) f_close(&floppy_files[0]);
     if (fdd_media_mask & 2u) f_close(&floppy_files[1]);
@@ -258,7 +298,10 @@ bool handleScancode(const uint8_t ps2scancode) {
     if (!sd_ok) printf("[xt8086] no SD card, or the card could not be mounted\n");
 
     // Settings live on the card; without one, the defaults stand.
-    if (sd_ok) load_settings();
+    if (sd_ok) {
+        load_settings();
+        media_plant_tools();
+    }
 
     // Is there actually a CPU in the socket?
     //

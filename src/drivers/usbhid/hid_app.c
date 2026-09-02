@@ -219,15 +219,23 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
         usb_mouse_connected = true;
     }
 
-    // A keyboard that reports protocol "none" is in report mode and will
-    // send a vendor-specific layout this driver does not parse. Asking for
-    // boot protocol makes it send the six-key report process_kbd_report()
-    // expects. Silently skipping this is a keyboard that mounts and then
-    // does nothing, which is the failure that is hardest to see.
-    if (itf_protocol == HID_ITF_PROTOCOL_NONE) {
-        printf("[usb]   requesting boot protocol\n");
-        tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
-    }
+    /*
+     * Boot protocol, always -- not just for interfaces that report
+     * "none".
+     *
+     * Both parsers here assume the boot layouts: six-key rollover for the
+     * keyboard, and exactly [buttons, dx, dy] for the mouse. In *report*
+     * protocol a device may legitimately prefix every report with a
+     * report ID, which shifts all three mouse fields by a byte, so
+     * process_mouse_report() reads the ID as the button mask and the
+     * buttons as X. The pointer then moves on its own and clicks at
+     * random, which looks like a driver bug and is not one.
+     *
+     * Asking unconditionally costs one control transfer at mount and
+     * makes the layout the same on every device.
+     */
+    printf("[usb]   requesting boot protocol\n");
+    tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
 
     if (!tuh_hid_receive_report(dev_addr, instance)) {
         printf("[usb]   ERROR: could not arm the first report\n");
@@ -247,6 +255,14 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
         find_released_keys(kbd_report);
         memcpy(&prev_report, report, sizeof(hid_keyboard_report_t));
     } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
+        // The first few reports, so a mouse that moves but does nothing
+        // can be told apart from one that is not reporting at all.
+        static uint8_t seen;
+        if (seen < 3) {
+            seen++;
+            printf("[usb] mouse report, %u bytes: %02X %02X %02X\n",
+                   len, report[0], len > 1 ? report[1] : 0, len > 2 ? report[2] : 0);
+        }
         process_mouse_report(report, len);
     }
 

@@ -231,6 +231,44 @@ Carried over from the prototype and not yet addressed:
   raw struct dump with no checksum.
 - Comments and identifiers are a mix of English and Russian.
 
+## The DOS-side tools
+
+`tools/dos/` holds two small `.COM` programs, assembled with NASM and
+welded into the firmware, which writes them to `/XT/` on the microSD at
+every boot so they always match the CMOS emulation they talk to.
+
+| Tool | Does |
+|------|------|
+| `SETCLOCK.COM` | reads the CMOS RTC at 70h/71h and sets the DOS clock |
+| `SETRTC.COM` | the reverse: stores the DOS date and time into the RTC |
+
+They exist because GLaBIOS is an XT BIOS and an XT had no CMOS clock, so
+it does not read one — DOS otherwise starts at midnight on every boot
+regardless of the battery-backed DS3231 on the board.
+
+**Installing them.** DOS cannot see `/XT`: the guest only ever sees the
+contents of the `.img` files, and `/XT` is the host filesystem those
+images live in. So copy them into your boot image — mount the `.img` on
+a host machine and copy them in, then add `SETCLOCK` to `AUTOEXEC.BAT`.
+
+The firmware deliberately does not write into the image for you. That
+would mean mounting a disk image as a second FatFs volume and modifying
+it on every boot, and a firmware that does that will eventually corrupt
+one.
+
+**Setting the clock the first time.** A board whose coin cell has gone
+flat reports its time as invalid, and `SETCLOCK` will correctly refuse to
+act on it. Break the deadlock once, in DOS:
+
+```
+DATE            set today's date
+TIME            and the time
+SETRTC          persist both into the DS3231
+```
+
+Writing the clock clears the chip's oscillator-stopped flag, so from then
+on the firmware trusts it and `SETCLOCK` restores it on every boot.
+
 ## Attribution
 
 This repository's history names the people responsible for it and nobody
