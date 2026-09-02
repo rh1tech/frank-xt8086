@@ -27,8 +27,14 @@
 #include <pico/stdio.h>
 #include <pico/bootrom.h>   // the console's 'B' key drops to BOOTSEL
 
-#include "state.h"      // VIDEORAM, the 16550 model the console types into
+#include "state.h"      // VIDEORAM
 #include "graphics.h"   // TEXTMODE_80x25_COLOR
+#include "uart16550.h"  // the emulated COM1 that CTTY mode types into
+
+// A header that uses a symbol should include what declares it. This one
+// referenced `uart` and got away with it because main.c was its only
+// includer and included uart16550.h first; the moment screens.c included
+// it too, the SERIAL_CONSOLE build stopped compiling.
 
 // The USB HID host is always compiled in now; see the note above.
 #include "hid_app.h"

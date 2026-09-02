@@ -53,3 +53,26 @@ cmake --build "${BUILD_DIR}" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 
 
 echo
 echo "Built: ${BUILD_DIR}/frank-xt8086.uf2"
+
+# Then the other configuration, unless told not to.
+#
+# SERIAL_CONSOLE=ON compiles a different half of ui/console.h, and it has
+# now twice been the build that broke while the default stayed green --
+# once for a missing pico/bootrom.h, once for a header that used `uart`
+# without including what declares it. CI catches those, minutes later and
+# after a push. This catches them here.
+#
+# ALL=0 skips it when iterating on the board and the seconds matter.
+if [[ "${ALL:-1}" == "1" ]]; then
+    echo
+    echo "--- checking the serial-console configuration also builds ---"
+    cmake -S src/app -B "${BUILD_DIR}-console" \
+          -DPICO_BOARD="${BOARD}" \
+          -DCPU_SPEED="${CPU_SPEED}" \
+          -DPSRAM_SPEED="${PSRAM_SPEED}" \
+          -DSERIAL_CONSOLE=ON \
+          >/dev/null
+    cmake --build "${BUILD_DIR}-console" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" \
+          >/dev/null
+    echo "ok"
+fi
