@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 #include <hardware/gpio.h>
+#include <pico/time.h>
 #include <hardware/i2c.h>
 
 #include "xt8086.h"   // I2C_SDA_PIN, I2C_SCL_PIN
@@ -64,7 +65,57 @@ static bool reg_write(const uint8_t reg, const uint8_t *buf, const size_t len) {
 // Public
 // ---------------------------------------------------------------------------
 
+/*
+ * Unstick the bus before trusting it.
+ *
+ * I2C has no reset line. If the RP2350 is reset part-way through a
+ * transfer -- and cmos_tick() starts one every second, so the odds over a
+ * few reflashes are good -- the DS3231 is left in the middle of a byte
+ * still holding SDA low, waiting for clocks that never come. Nothing on
+ * the master side clears that: i2c_init() only configures our end, so
+ * every read afterwards fails and the part reads as absent. It survives
+ * reset after reset, because only the slave can let go, and it will not
+ * until it is clocked.
+ *
+ * That is exactly what happened here: a chip that had been reporting its
+ * time perfectly well became "DS3231 absent" and stayed that way.
+ *
+ * The remedy is the standard one. Take the pins back as GPIO and, while
+ * SDA is held low, clock SCL -- at most nine times, which is one byte
+ * plus its acknowledge, the longest a slave can still be waiting. Then
+ * frame a STOP by hand so it starts from a known state.
+ */
+static void i2c_bus_recover(void) {
+    gpio_init(I2C_SCL_PIN);
+    gpio_init(I2C_SDA_PIN);
+
+    // SDA as an input: whether the slave is holding it is the question.
+    gpio_set_dir(I2C_SDA_PIN, GPIO_IN);
+    gpio_set_dir(I2C_SCL_PIN, GPIO_OUT);
+    gpio_put(I2C_SCL_PIN, 1);
+    sleep_us(5);
+
+    for (int i = 0; i < 9 && !gpio_get(I2C_SDA_PIN); i++) {
+        gpio_put(I2C_SCL_PIN, 0);
+        sleep_us(5);
+        gpio_put(I2C_SCL_PIN, 1);
+        sleep_us(5);
+    }
+
+    // STOP is SDA rising while SCL is high.
+    gpio_set_dir(I2C_SDA_PIN, GPIO_OUT);
+    gpio_put(I2C_SDA_PIN, 0);
+    sleep_us(5);
+    gpio_put(I2C_SCL_PIN, 1);
+    sleep_us(5);
+    gpio_put(I2C_SDA_PIN, 1);
+    sleep_us(5);
+    gpio_set_dir(I2C_SDA_PIN, GPIO_IN);
+}
+
 bool ds3231_init(void) {
+    i2c_bus_recover();
+
     i2c_init(RTC_I2C, RTC_I2C_HZ);
     gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);

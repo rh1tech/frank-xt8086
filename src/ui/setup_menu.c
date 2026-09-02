@@ -8,6 +8,8 @@
 #include <stdio.h>
 
 #include "conkey.h"
+#include "ds3231.h"
+#include "mc146818.h"
 #include <stdlib.h>
 #include <pico/time.h>
 #include "ff.h"
@@ -42,11 +44,17 @@ settings_s settings = {
 };
 
 /* --------- simplified menu description --------- */
+// Shown in the value column of the "Date and time" row.
+static char clock_text[24];
+static void refresh_clock_text(void);
+static void clock_editor(void);
+
 static const MenuItem menu_items[] = {
     {"Machine",         .colors = {UI_YELLOW, UI_WIN_BG}},
     {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
     {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
+    {"Date and time",    ACTION, clock_text, nullptr, 0},
     {""},
     {"Drives",          .colors = {UI_YELLOW, UI_WIN_BG}},
     {"Floppy A:",        STRING, settings.fda, nullptr, 255},
@@ -418,7 +426,7 @@ static void draw_menu_item(const MenuItem *item, const int wx, const int y,
     char buf[48];
     if (item->type == ARRAY) {
         val = item->value_list[*(uint8_t *)item->value];
-    } else if (item->type == STRING) {
+    } else if (item->type == STRING || item->type == ACTION) {
         const char *v = (const char *)item->value;
         if (v && v[0]) {
             // Long paths are elided from the left: the filename is what
@@ -442,6 +450,119 @@ static void draw_menu_item(const MenuItem *item, const int wx, const int y,
 }
 
 /* ----------------- public: setup_menu ----------------- */
+/* ----------------- clock ----------------- */
+
+/*
+ * Set the real-time clock.
+ *
+ * The only way to set the DS3231 was DATE and TIME followed by SETRTC
+ * from inside DOS, and nothing in the boot sequence does that -- AUTOEXEC
+ * runs SETCLOCK, which copies the clock the other way. So a board whose
+ * RTC has never been set stays unset, reports its oscillator-stopped flag
+ * for ever, and every boot falls back to the firmware build timestamp.
+ * Which is exactly what this board was doing: the part was healthy and
+ * ticking, holding 2000-01-01, because nobody had ever told it otherwise.
+ */
+static void refresh_clock_text(void) {
+    rtc_time_t t;
+    if (ds3231_present() && ds3231_read(&t) && rtc_time_valid(&t))
+        snprintf(clock_text, sizeof clock_text, "%04u-%02u-%02u %02u:%02u",
+                 t.year, t.mon, t.day, t.hour, t.min);
+    else
+        snprintf(clock_text, sizeof clock_text, "%s", "no clock");
+}
+
+#define CLOCK_W 44
+#define CLOCK_H 9
+
+// year, month, day, hour, minute, second
+#define CLOCK_FIELDS 6
+
+static void clock_adjust(rtc_time_t *t, const int field, const int dir) {
+    switch (field) {
+        case 0: t->year = (uint16_t)(t->year + dir);
+                if (t->year < 2000u) t->year = 2099u;
+                if (t->year > 2099u) t->year = 2000u;
+                break;
+        case 1: t->mon = (uint8_t)(t->mon + dir);
+                if (t->mon < 1u)  t->mon = 12u;
+                if (t->mon > 12u) t->mon = 1u;
+                break;
+        case 2: t->day = (uint8_t)(t->day + dir);
+                if (t->day < 1u) t->day = rtc_days_in_month(t->year, t->mon);
+                break;
+        case 3: t->hour = (uint8_t)((t->hour + dir + 24) % 24); break;
+        case 4: t->min  = (uint8_t)((t->min  + dir + 60) % 60); break;
+        default:t->sec  = (uint8_t)((t->sec  + dir + 60) % 60); break;
+    }
+    // February and the short months, after any edit that can invalidate it.
+    const uint8_t last = rtc_days_in_month(t->year, t->mon);
+    if (t->day > last) t->day = last;
+}
+
+static void clock_editor(void) {
+    rtc_time_t t;
+    if (!ds3231_present()) return;
+    if (!ds3231_read(&t) || !rtc_time_valid(&t)) {
+        // Never set, so start somewhere sane rather than at the epoch.
+        t = (rtc_time_t){ .year = 2026, .mon = 1, .day = 1,
+                          .hour = 0, .min = 0, .sec = 0 };
+    }
+
+    const int wx = (TEXTMODE_COLS - CLOCK_W) / 2;
+    const int wy = (TEXTMODE_ROWS - CLOCK_H) / 2;
+
+    int field = 0;
+    for (;;) {
+        ui_shadow(wx, wy, CLOCK_W, CLOCK_H);
+        ui_window(wx, wy, CLOCK_W, CLOCK_H, UI_BOX_DOUBLE, "Set clock",
+                  UI_ATTR_WINDOW, UI_ATTR_BORDER);
+
+        char buf[24];
+        snprintf(buf, sizeof buf, "%04u-%02u-%02u %02u:%02u:%02u",
+                 t.year, t.mon, t.day, t.hour, t.min, t.sec);
+        const int bx = wx + (CLOCK_W - 19) / 2;
+        ui_text(bx, wy + 3, buf, UI_ATTR_VALUE);
+
+        // Underline the field being edited, in place, so the layout does
+        // not shift as the selection moves.
+        static const uint8_t off[CLOCK_FIELDS] = { 0, 5, 8, 11, 14, 17 };
+        static const uint8_t len[CLOCK_FIELDS] = { 4, 2, 2,  2,  2,  2 };
+        for (int i = 0; i < len[field]; i++)
+            ui_putc(bx + off[field] + i, wy + 4, 0xC4, UI_ATTR_VALUE);
+
+        ui_text_center_in(wx, CLOCK_W, wy + 6,
+                          "LEFT/RIGHT field   UP/DOWN change", UI_ATTR_DIM);
+        ui_hint_bar("ENTER set the clock   ESC cancel");
+
+        switch (wait_scancode()) {
+            case 0x4B: field = (field + CLOCK_FIELDS - 1) % CLOCK_FIELDS; break;
+            case 0x4D: field = (field + 1) % CLOCK_FIELDS;                break;
+            case 0x48: clock_adjust(&t, field, +1);                       break;
+            case 0x50: clock_adjust(&t, field, -1);                       break;
+
+            case 0x1C:
+                t.dow = rtc_day_of_week(t.year, t.mon, t.day);
+                if (ds3231_write(&t)) {
+                    // Writing clears the oscillator-stopped flag, which is
+                    // what makes the next boot trust the date. cmos_init()
+                    // ran long before SETUP, so re-run it or the guest
+                    // would boot with the stale snapshot.
+                    cmos_init();
+                    printf("[rtc] clock set to %04u-%02u-%02u %02u:%02u:%02u\n",
+                           t.year, t.mon, t.day, t.hour, t.min, t.sec);
+                }
+                refresh_clock_text();
+                return;
+
+            case 0x01:
+                return;
+
+            default: break;
+        }
+    }
+}
+
 void setup_menu(void) {
     const settings_s backup = settings;
 
@@ -451,6 +572,8 @@ void setup_menu(void) {
     uint8_t current = 1;    // first editable item
     bool running = true;
     bool redraw  = true;
+
+    refresh_clock_text();
 
     while (running) {
         if (redraw) {
@@ -516,6 +639,9 @@ void setup_menu(void) {
                     redraw = true;
                 } else if (mi->type == STRING) {
                     file_browser((char *)mi->value, mi->max_value, ".img");
+                    redraw = true;
+                } else if (mi->type == ACTION) {
+                    clock_editor();
                     redraw = true;
                 }
                 break;

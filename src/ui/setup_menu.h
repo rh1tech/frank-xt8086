@@ -8,6 +8,7 @@ enum menu_type_e {
     ARRAY,  // Выбор из массива значений (LEFT/RIGHT)
     STRING, // Строковый ввод (пока не реализован)
     EXIT,   // Выход из меню
+    ACTION, // ENTER runs the callback; `value` is a string to show
 };
 
 /* ----------------- menu drawing ----------------- */
