@@ -17,7 +17,14 @@
 // BROWSER_MAX_VISIBLE now, so the two could not disagree.
 #define BROWSER_MAX_VISIBLE 14
 #define BROWSER_MAX_FILES 50
-#define CONFIG_FILE "/XT/config.sys"
+/*
+ * The firmware's own settings, not a DOS one.
+ *
+ * This was /XT/config.sys, which is a genuinely confusing name for a
+ * binary struct dump sitting next to disk images that contain a real
+ * CONFIG.SYS of their own.
+ */
+#define CONFIG_FILE "/XT/xt8086.cfg"
 
 extern uint8_t current_scancode;
 
@@ -26,9 +33,9 @@ settings_s settings = {
     .version = SETTINGS_VERSION,
     .tandy_enabled = 0,
     .cpu_freq_index = 2,  // По умолчанию 6MHz
-    .fda = "/XT/fdd.img",
+    .fda = "/XT/fdd0.img",
     .fdb = "",
-    .hdd = "/XT/hdd.img",
+    .hdd = "/XT/hdd0.img",
 };
 
 /* --------- simplified menu description --------- */

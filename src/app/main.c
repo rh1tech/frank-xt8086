@@ -86,27 +86,6 @@ static bool sd_mounted;
  * Rewritten every boot rather than only when missing, for the same
  * reason. Together they are under a kilobyte.
  */
-static void plant(const char *path, const uint8_t *data, const uint32_t len) {
-    FIL f;
-    if (FR_OK != f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS)) {
-        printf("[media] could not write %s\n", path);
-        return;
-    }
-    UINT wrote = 0;
-    f_write(&f, data, (UINT)len, &wrote);
-    f_close(&f);
-    printf("[media] %s written (%u bytes, host-side)\n", path, wrote);
-}
-
-static void media_plant_tools(void) {
-    extern uint8_t SETCLOCK[], SETRTC[];
-    extern const uint32_t _sizeof_SETCLOCK, _sizeof_SETRTC;
-
-    f_mkdir("/XT");   // harmless if it exists
-    plant("/XT/SETCLOCK.COM", SETCLOCK, (uint32_t)(uintptr_t)&_sizeof_SETCLOCK);
-    plant("/XT/SETRTC.COM",   SETRTC,   (uint32_t)(uintptr_t)&_sizeof_SETRTC);
-}
-
 void media_reload(void) {
     if (fdd_media_mask & 1u) f_close(&floppy_files[0]);
     if (fdd_media_mask & 2u) f_close(&floppy_files[1]);
@@ -299,10 +278,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     if (!sd_ok) printf("[xt8086] no SD card, or the card could not be mounted\n");
 
     // Settings live on the card; without one, the defaults stand.
-    if (sd_ok) {
-        load_settings();
-        media_plant_tools();
-    }
+    if (sd_ok) load_settings();
 
     // Is there actually a CPU in the socket?
     //
