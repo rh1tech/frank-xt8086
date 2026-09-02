@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# frank-xt8086 — an RP2350B acting as the whole chipset for a real 8086
+#
+# Copyright (c) 2026 Mikhail Matveev <xtreme@rh1.tech>
+# https://github.com/rh1tech/frank-xt8086
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# pre-push — last look before anything leaves the machine.
+#
+# commit-msg sees one message at the moment it is written. This sees every
+# commit actually about to be pushed, which is the only local gate that
+# catches:
+#
+#   - a commit made with --no-verify
+#   - a commit made before `make hooks` was run
+#   - a rebase or cherry-pick that carried a bad message in from elsewhere
+#   - a merge commit, whose message does not always reach commit-msg
+#
+# stdin is "<local ref> <local sha> <remote ref> <remote sha>" per ref.
+
+set -uo pipefail
+
+CHECK="$(git rev-parse --show-toplevel)/tools/check-attribution.sh"
+ZERO=$(git hash-object --stdin </dev/null | tr '[:alnum:]' '0')
+rc=0
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # A ref being deleted has nothing to inspect.
+    [ "$local_sha" = "$ZERO" ] && continue
+
+    if [ "$remote_sha" = "$ZERO" ]; then
+        # A new branch. Scan what it adds over everything the remote
+        # already has, rather than its whole history back to the root —
+        # otherwise every new branch re-reports commits already accepted.
+        range=$(git rev-list "$local_sha" --not --remotes)
+    else
+        range=$(git rev-list "$remote_sha..$local_sha")
+    fi
+
+    [ -n "$range" ] || continue
+    # shellcheck disable=SC2086
+    "$CHECK" --range --no-walk $range || rc=1
+done
+
+exit "$rc"

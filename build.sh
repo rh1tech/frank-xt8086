@@ -19,6 +19,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./sdk_env.sh
 
+# A one-line nudge, not a gate. The commit hooks only exist for a clone
+# that has run `make hooks`, and the usual way to find that out is to have
+# a push rejected later. This disappears as soon as they are installed.
+if [ "$(git config core.hooksPath 2>/dev/null || true)" != ".githooks" ]; then
+    echo "note: git hooks are not installed in this clone -- run 'make hooks'"
+fi
+
 BUILD_DIR="${BUILD_DIR:-app/build}"
 BOARD="${BOARD:-frank_xt8086}"
 CPU_SPEED="${CPU_SPEED:-504}"

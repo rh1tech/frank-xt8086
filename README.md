@@ -194,6 +194,44 @@ Carried over from the prototype and not yet addressed:
   raw struct dump with no checksum.
 - Comments and identifiers are a mix of English and Russian.
 
+## Attribution
+
+This repository's history names the people responsible for it and nobody
+else. A co-author trailer naming a tool is not a courtesy — it puts that
+tool in GitHub's contributor list, where it stays until the history is
+rewritten.
+
+`tools/check-attribution.sh` is the one implementation of that rule, and
+everything else calls it. It rejects three things: a credit trailer whose
+value names an AI tool, an advertising phrase such as
+`Generated with [Claude Code]`, and a machine identity as author,
+committer or sign-off.
+
+Tool names are only ever matched **inside** an attribution construct, on
+purpose. This is firmware for a machine with a text cursor; a bare word
+match would reject `fix: MC6845 cursor blink` while still letting a
+hand-written "thanks to my mate Claude" through. `--self-test` covers
+both directions and CI runs it before it trusts the patterns.
+
+Four gates, because each one has a hole the next one covers:
+
+| Gate | Catches | Misses |
+|------|---------|--------|
+| `.githooks/commit-msg` | the message and identity as you commit | `--no-verify`, `git am`, a clone without `make hooks` |
+| `.githooks/applypatch-msg` | a mailed patch applied with `git am` | as above |
+| `.githooks/pre-push` | every commit about to leave the machine, including ones made with `--no-verify` or before the hooks were installed | a clone without `make hooks` |
+| `.github/workflows/ci.yml` | every commit pushed to any branch, and commits authored through GitHub's web surface | nothing — this is the one that applies to everyone |
+
+```sh
+make hooks               # once per clone; also runs the self-test
+make check-attribution   # scan what this branch adds over the remote
+```
+
+`make hooks` is opt-in because git will not let a repository install its
+own hooks. That is why CI is the real gate and the hooks are the fast
+feedback — and why `build.sh` prints a one-line reminder until they are
+installed.
+
 ## Licence
 
 GPL-3.0-or-later. FatFs, the SD card driver and the VGA driver carry their

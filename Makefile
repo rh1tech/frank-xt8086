@@ -8,14 +8,20 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help hooks build clean flash swd console shot view
+.PHONY: help hooks check-attribution build clean flash swd console shot view
 
 help: ## Show this help
 	@grep -hE '^[a-z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-hooks: ## Point git at the repo's hooks (.githooks)
+hooks: ## Install the repo's git hooks (do this once per clone)
 	@git config core.hooksPath .githooks
+	@chmod +x .githooks/* tools/check-attribution.sh
 	@echo "core.hooksPath = .githooks"
+	@./tools/check-attribution.sh --self-test
+
+check-attribution: ## Scan this branch's commits for AI attribution
+	@./tools/check-attribution.sh --self-test
+	@./tools/check-attribution.sh --range HEAD --not --remotes
 
 build: ## Build the firmware
 	@./build.sh
