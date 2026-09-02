@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# Refuse a commit message that credits an AI.
+#
+# This repository's history names the people responsible for it and nobody else.
+# A co-author trailer naming a tool is not a courtesy: it puts that tool in GitHub's
+# contributor list, where it stays until the history is rewritten.
+#
+# This is the first of two gates and the weaker one — it only protects a clone that has
+# opted in (`make hooks`). It cannot see a commit authored through GitHub's web surface.
+# CI is what enforces the policy for everyone; see .github/workflows/ci.yml.
+#
+# Bypass, if you genuinely must:  git commit --no-verify
+set -uo pipefail
+
+msg_file="$1"
+
+trailers='co-authored-by:.*(copilot|claude|chatgpt|gpt-|anthropic|openai|codex|cursor|devin|gemini|bard)'
+adverts='generated with \[?(claude|copilot|chatgpt)|assisted-by:|claude-session|🤖'
+
+if grep -inE "${trailers}|${adverts}" "${msg_file}" >/dev/null 2>&1; then
+  echo "ERROR: this commit message credits an AI." >&2
+  echo >&2
+  grep -inE "${trailers}|${adverts}" "${msg_file}" >&2
+  echo >&2
+  echo "Remove the line and commit again. See .githooks/commit-msg for why." >&2
+  exit 1
+fi

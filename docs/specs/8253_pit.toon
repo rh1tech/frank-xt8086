@@ -1,0 +1,71 @@
+name: 8253/8254 Programmable Interval Timer
+aliases[1]: PIT
+description: A programmable interval timer used for timing and counting.
+ports[4]:
+  - address: 40h
+    name: Counter 0
+    description: Time of Day Clock (normally mode 3)
+  - address: 41h
+    name: Counter 1
+    description: RAM Refresh Counter (normally mode 2)
+  - address: 42h
+    name: Counter 2
+    description: Cassette and Speaker Functions
+  - address: 43h
+    name: Mode Control Register
+mode_control_register:
+  address: 43h
+  bits[4]:
+    - bit: 7-6
+      name: Counter Select
+      values:
+        "10": select counter 2
+        "11": "read back command (8254 only, illegal on 8253)"
+        "00": select counter 0
+        "01": select counter 1
+    - bit: 5-4
+      name: Read/Write/Latch Format
+      values:
+        "10": read/write of LSB only
+        "11": "read/write LSB, followed by write of MSB"
+        "00": latch present counter value
+        "01": read/write of MSB only
+    - bit: 3-1
+      name: Counter Mode
+      values:
+        "100": "mode 4, software triggered strobe"
+        "101": "mode 5, hardware triggered strobe"
+        "000": "mode 0, interrupt on terminal count"
+        "001": "mode 1, programmable one-shot"
+        "010": "mode 2, rate generator"
+        "011": "mode 3, square wave rate generator"
+    - bit: 0
+      name: Counter Type
+      values:
+        "0": 16-bit binary counter
+        "1": 4-decade BCD counter
+read_back_command_8254:
+  description: 8254 only. Written to Mode Control Register (43h).
+  format_bits[7]:
+    - bit: 7-6
+      value: "11"
+      description: Read Back Command
+    - bit: 5
+      description: 0 = latch count of selected counters
+    - bit: 4
+      description: 0 = latch status of selected counters
+    - bit: 3
+      description: select counter 2
+    - bit: 2
+      description: select counter 1
+    - bit: 1
+      description: select counter 0
+    - bit: 0
+      description: must be zero
+  status_bits[5]{bit,description}:
+    7,"state of OUT pin (1=high, 0=low)"
+    6,"1=null count (no count set), 0=count available"
+    5-4,read/write/latch format
+    3-1,counter mode bits
+    0,"0=16 binary counter, 1=4 decade BCD counter"
+notes[7]: "The 8253 is used on the PC & XT, while the 8254 is used on the AT+.",All counters are decrementing and fully independent.,The PIT is tied to 3 clock lines all generating 1.19318 MHz.,Counters are 16-bit quantities (0-65535). Specifying 0 gives a count of 65536.,"Counter 0 is the time of day interrupt, approx 18.2 times/sec.","Counter 1 is for RAM refresh, approx every 15us.",Counter 2 is for speaker tones.

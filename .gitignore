@@ -1,0 +1,35 @@
+# Build trees. CMake is told to build out-of-source; every one of these is
+# regenerable and none of it belongs in history.
+build/
+build-*/
+app/build/
+cmake-build-*/
+
+# Build products, wherever they land.
+*.uf2
+*.elf
+*.bin
+*.hex
+*.dis
+*.map
+
+# Generated from the .pio next to it by pioasm at build time.
+*.pio.h
+
+# ...but the ROM images are build *inputs*, welded into the binary by
+# IMPORT_BIN in core/state.c. Without them a fresh clone does not build,
+# so they are tracked despite the *.bin rule above.
+!roms/*
+
+# Bench session output: captures, logs, scratch.
+out/
+
+# macOS
+.DS_Store
+._*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

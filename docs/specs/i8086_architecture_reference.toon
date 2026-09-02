@@ -1,0 +1,225 @@
+i8086_architecture_interaction:
+  title: Intel 8086 System Architecture Interaction Guide
+  overview: Complete reference of how Intel 8086 interacts with IBM PC chipset components
+  cpu_bus_interface:
+    address_bus:
+      width: 20-bit (A0-A19)
+      address_space: 1MB (0x00000-0xFFFFF)
+      multiplexing: AD0-AD15 carry both address and data (time multiplexed)
+      address_types:
+        memory: "A0=0, M/IO=1 (80% of bus operations)"
+        io_ports: "A0-A15, M/IO=0 (20% of bus operations)"
+    data_bus:
+      width: 16-bit (D0-D15)
+      multiplexed: "AD0-AD15 (address in T1, data in T2-T4)"
+      byte_control:
+        BHE: Bus High Enable (byte 0/1 selection)
+        BLE: Bus Low Enable (A0 controls byte 0)
+      data_alignment: "Even addresses: 16-bit, Odd addresses: 8-bit + wait state"
+    control_bus:
+      timing_signals:
+        ALE: Address Latch Enable (demultiplex AD0-AD15)
+        CLK: System clock input
+        READY: Wait state control (extends bus cycles)
+      transfer_controls:
+        RD: Read strobe (active low)
+        WR: Write strobe (active low)
+        M_IO: "Memory/IO select (1=memory, 0=I/O)"
+      interrupt_signals:
+        INTR: Maskable interrupt request
+        NMI: Non-maskable interrupt request
+        INTA: Interrupt acknowledge (CPU acknowledges)
+      bus_control:
+        RESET: System reset (active high)
+        TEST: Test input (WAIT instruction)
+        HOLD_HLDA: Bus arbitration (DMA request/acknowledge)
+  memory_hierarchy:
+    rom_bios:
+      address_range: 0xF0000-0xFFFFF
+      size: 64KB (typical 8KB-16KB used)
+      purpose: "BIOS routines, POST, boot loader"
+      access_pattern: "Read-only, executes on reset and BIOS calls"
+      interaction: CPU jumps to 0xFFFF0 on reset (BIOS entry point)
+    video_memory:
+      mda_monochrome:
+        address_range: 0xB0000-0xB0FFF
+        size: 4KB
+        format: 25 rows × 80 columns (2000 bytes text + attributes)
+        access_pattern: "CPU writes text, hardware reads for display"
+      cga_color:
+        address_range: 0xB8000-0xBFFFF
+        size: 16KB
+        format: "Various modes (40×25, 80×25, graphics)"
+        access_pattern: "CPU writes pixels/text, video controller reads"
+    conventional_ram:
+      address_range: 0x00000-0x9FFFF
+      size: 640KB
+      purpose: "Program execution, data storage, stack"
+      usage_pattern: "Frequent read/write access, variable locations"
+    video_bios:
+      address_range: 0xC0000-0xC7FFF
+      size: 32KB (typical 8KB-16KB used)
+      purpose: "Video BIOS routines, character fonts"
+      access_pattern: Called via INT 10h for video operations
+    expansion_rom:
+      address_range: 0xC8000-0xEFFFF
+      size: 160KB
+      purpose: "Hardware adapter ROMs (network, disk controllers)"
+      access_pattern: Called via interrupts or BIOS extensions
+  io_port_system:
+    port_addressing:
+      width: 16-bit port numbers (0x0000-0xFFFF)
+      access_modes[2]: 8-bit IN/OUT,16-bit IN/OUT
+      special_ports: "0x00-0xFF for motherboard devices, 0x100+ for expansion cards"
+    motherboard_devices:
+      dma_controller_8237a:
+        port_range: 0x0000-0x000F
+        purpose: DMA channel programming and status
+        interaction: "CPU programs DMA parameters, DMA controls memory transfers"
+        bus_master: 8237A becomes bus master during DMA transfers
+      interrupt_controller_8259a:
+        port_range: 0x0020-0x0021
+        purpose: Interrupt mask and vector programming
+        interaction: "CPU programs interrupt masks, 8259A manages IRQ prioritization"
+        interrupt_flow: Device → 8259A → INTR → CPU → INTA → 8259A → Vector
+      timer_8253_8254:
+        port_range: 0x0040-0x0043
+        purpose: System timing functions
+        interaction: "CPU programs timer modes, 8253 generates periodic interrupts"
+        timer_0: System timer (18.2 Hz IRQ0)
+        timer_1: DRAM refresh
+        timer_2: Speaker tone generation
+      keyboard_controller_8042:
+        port_range: 0x0060-0x0064
+        purpose: Keyboard interface and system control
+        interaction: Keyboard scancodes → 8042 → IRQ1 → CPU reads port 0x60
+      parallel_port:
+        port_range: 0x0378-0x037A
+        purpose: Printer interface
+        interaction: "CPU writes printer data, reads status"
+      serial_ports:
+        com1_ports: 0x03F8-0x03FF
+        com2_ports: 0x02F8-0x02FF
+        purpose: RS-232 communication
+        interaction: "CPU programs UART, handles serial data"
+      floppy_controller_8272a:
+        port_range: 0x03F0-0x03F7
+        purpose: Floppy disk operations
+        interaction: "CPU issues commands, uses DMA channel 2 for data transfer"
+        interrupt: IRQ6 on command completion
+      hard_disk_controller:
+        port_range: "0x01F0-0x01F7 (primary), 0x0170-0x0177 (secondary)"
+        purpose: Hard disk interface
+        interaction: "CPU issues ATA commands, uses DMA channel 3"
+        interrupt: "IRQ14 (primary), IRQ15 (secondary)"
+  interrupt_system:
+    interrupt_types:
+      hardware_interrupts:
+        nmi:
+          vector: 0x02
+          trigger: "Rising edge, non-maskable"
+          sources[2]: Memory parity error,I/O channel check
+          priority: Highest (cannot be disabled)
+        irq_system:
+          controller: 8259A Programmable Interrupt Controller
+          vectors: 0x08-0x0F (IRQ0-IRQ7)
+          priority: "IRQ0 highest, IRQ7 lowest"
+          masking: Individual IRQs can be masked via 8259A
+        irq_assignments:
+          IRQ0: "System timer (8253 Timer 0, 18.2 Hz)"
+          IRQ1: Keyboard (8042 controller)
+          IRQ2: Cascade (secondary 8259A)
+          IRQ3: COM2 serial port
+          IRQ4: COM1 serial port
+          IRQ5: LPT2 parallel port (or free)
+          IRQ6: Floppy disk controller
+          IRQ7: LPT1 parallel port
+      software_interrupts:
+        bios_interrupts:
+          INT_10h: Video services
+          INT_13h: Disk services (floppy/hard)
+          INT_14h: Serial communication
+          INT_16h: Keyboard services
+          INT_17h: Printer services
+          INT_1Ah: Time/date services
+        dos_interrupts:
+          INT_21h: DOS function calls
+          INT_20h: Program termination
+          INT_25h_26h: Absolute disk read/write
+    interrupt_sequence:
+      hardware_interrupt[10]: External device asserts IRQ line,8259A evaluates priority and asserts INTR,CPU completes current instruction,CPU asserts INTA (first pulse),8259A places CALL instruction on bus,CPU asserts INTA (second pulse),8259A places interrupt vector on bus,"CPU pushes flags, CS, IP to stack",CPU jumps to interrupt vector address,"ISR executes, IRET returns to program"
+  dma_system:
+    dma_controller:
+      chip: 8237A DMA Controller
+      channels: "4 channels (primary), 4 channels (secondary)"
+      addressing: 24-bit with page registers
+      transfer_modes[4]: Demand,Single,Block,Cascade
+    dma_channel_usage:
+      channel_0: DRAM refresh (not available for general use)
+      channel_1: Free (often network card)
+      channel_2: Floppy disk controller
+      channel_3: Hard disk controller
+      channel_4: Cascade to secondary controller
+      "channel_5-7": Available for expansion cards
+    dma_transfer_sequence[9]: Peripheral asserts DREQ line,8237A asserts HOLD to CPU,CPU asserts HLDA (grant bus),8237A becomes bus master,8237A asserts DACK to peripheral,Data transfer between memory and peripheral,8237A asserts EOP (end of process),8237A releases bus control,CPU resumes normal operation
+  bus_timing:
+    clock_signals:
+      system_clock: 4.77 MHz (IBM PC XT)
+      bus_cycle: 4 clock cycles minimum
+      wait_states: Inserted via READY signal for slow devices
+    bus_cycle_types:
+      memory_read: 4+ clocks (ALE→T1→T2→T3→T4)
+      memory_write: 4+ clocks (ALE→T1→T2→T3→T4)
+      io_read: 5+ clocks (additional cycle for I/O space)
+      io_write: 5+ clocks (additional cycle for I/O space)
+      interrupt_acknowledge: 6 clocks (2 INTA pulses)
+      dma_transfer: 3-4 clocks per byte/word
+    timing_relationships:
+      ale_strobe: T1 state (address valid)
+      rd_wr_active: T2-T3 states (data transfer)
+      ready_sampling: T3 state (wait state insertion)
+      data_valid: End of T3 state
+  boot_sequence:
+    power_on:
+      step_1: CPU asserts RESET signal
+      step_2: All registers initialized
+      step_3: "CS:IP = 0xF000:0xFFF0 (physical 0xFFFF0)"
+      step_4: CPU fetches first instruction from BIOS ROM
+    bios_post:
+      step_1: POST (Power-On Self-Test)
+      step_2: Hardware initialization
+      step_3: Interrupt vector setup
+      step_4: Boot device detection
+    boot_loading:
+      step_1: INT 19h - Bootstrap loader
+      step_2: Read boot sector (512 bytes) from drive
+      step_3: "Load at 0x0000:0x7C00"
+      step_4: Jump to boot sector code
+      step_5: OS loader executes
+  performance_characteristics:
+    bus_bandwidth:
+      theoretical_max: 9.54 MB/s (4.77 MHz × 2 bytes)
+      typical_memory: 1-2 MB/s with wait states
+      typical_io: 0.5-1 MB/s
+    interrupt_latency:
+      nmi: Immediate (highest priority)
+      irq: 2-4 μs (depends on priority)
+      software: 1-2 μs (direct jump)
+    dma_performance:
+      maximum_rate: 1.6 MB/s (at 5 MHz clock)
+      typical_rate: 1.0 MB/s (with wait states)
+      efficiency: "High for bulk transfers, low overhead"
+  expansion_bus:
+    isa_bus:
+      data_bus: 16-bit
+      address_bus: 24-bit (with memory addressing)
+      expansion_slots: 8 slots
+      interrupt_lines: "IRQ3-IRQ7, IRQ9-IRQ15"
+      dma_channels: "DMA channel 3, 5-7"
+      bus_speed: "8 MHz (ISA), 4.77 MHz (PC/XT)"
+    expansion_cards:
+      video_cards[4]: MDA,CGA,EGA,VGA
+      disk_controllers[2]: Floppy,"Hard disk (MFM, RLL, IDE)"
+      network_cards[2]: Ethernet,Token Ring
+      memory_expansion: Additional RAM boards
+      multifunction: "I/O, parallel/serial, sound"

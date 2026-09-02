@@ -1,0 +1,164 @@
+chip: PC16550D
+type: Universal Asynchronous Receiver/Transmitter with FIFOs
+description: An improved version of the 16450 UART with 16-byte FIFO buffers for both receiver and transmitter.
+features[6]: Pin-for-pin compatible with the 16450 (with some exceptions).,16-byte receive and transmit FIFOs.,Programmable baud rate generator.,Full MODEM control.,"Programmable serial interface characteristics (5, 6, 7, or 8-bit characters; 1, 1.5, or 2 stop bits; even, odd, or no parity).",Prioritized interrupt system.
+registers[12]:
+  - name: Receiver Buffer Register (RBR)
+    address: 0 (DLAB=0)
+    access: Read-only
+    description: Contains the received character. Reading this register removes the character from the receiver FIFO.
+    bits[1]{bit,name,description}:
+      0-7,Data Bits,Received data.
+  - name: Transmitter Holding Register (THR)
+    address: 0 (DLAB=0)
+    access: Write-only
+    description: Holds the character to be transmitted. Writing to this register places the character in the transmitter FIFO.
+    bits[1]{bit,name,description}:
+      0-7,Data Bits,Data to be transmitted.
+  - name: Interrupt Enable Register (IER)
+    address: 1 (DLAB=0)
+    access: Read/Write
+    description: Enables/disables the five types of UART interrupts.
+    bits[5]{bit,name,description}:
+      0,ERBFI,Enable Received Data Available Interrupt.
+      1,ETBEI,Enable Transmitter Holding Register Empty Interrupt.
+      2,ELSI,Enable Receiver Line Status Interrupt.
+      3,EDSSI,Enable MODEM Status Interrupt.
+      4-7,Reserved,Always 0.
+  - name: Interrupt Identification Register (IIR)
+    address: "2"
+    access: Read-only
+    description: Identifies the highest priority pending interrupt.
+    bits[4]:
+      - bit: 0
+        name: Interrupt Pending
+        description: "0 if an interrupt is pending, 1 if no interrupt is pending."
+      - bit: 1-3
+        name: Interrupt ID
+        description: Identifies the source of the interrupt.
+        values:
+          "110": Character Timeout Interrupt
+          "011": Receiver Line Status Interrupt (Highest)
+          "010": Received Data Available Interrupt
+          "001": Transmitter Holding Register Empty Interrupt
+          "000": MODEM Status Interrupt (Lowest)
+      - bit: 4-5
+        name: Reserved
+        description: Always 0.
+      - bit: 6-7
+        name: FIFOs Enabled
+        description: Set if FIFOs are enabled.
+  - name: FIFO Control Register (FCR)
+    address: "2"
+    access: Write-only
+    description: Controls the operation of the FIFOs.
+    bits[6]:
+      - bit: 0
+        name: FIFO Enable
+        description: 1 to enable both transmit and receive FIFOs.
+      - bit: 1
+        name: RCVR FIFO Reset
+        description: 1 to clear all bytes in the receiver FIFO. Self-clearing.
+      - bit: 2
+        name: XMIT FIFO Reset
+        description: 1 to clear all bytes in the transmitter FIFO. Self-clearing.
+      - bit: 3
+        name: DMA Mode Select
+        description: Changes DMA signalling mode.
+      - bit: 4-5
+        name: Reserved
+        description: Reserved.
+      - bit: 6-7
+        name: RCVR Trigger
+        description: Sets the trigger level for the receiver FIFO interrupt.
+        values:
+          "10": 8 bytes
+          "11": 14 bytes
+          "00": 1 byte
+          "01": 4 bytes
+  - name: Line Control Register (LCR)
+    address: "3"
+    access: Read/Write
+    description: Specifies the format of the asynchronous data communication.
+    bits[7]:
+      - bit: 0-1
+        name: WLS
+        description: Word Length Select.
+        values:
+          "10": 7 bits
+          "11": 8 bits
+          "00": 5 bits
+          "01": 6 bits
+      - bit: 2
+        name: STB
+        description: "Number of Stop Bits. 0 for 1 stop bit, 1 for 1.5 or 2 stop bits."
+      - bit: 3
+        name: PEN
+        description: Parity Enable. 1 to enable parity generation and checking.
+      - bit: 4
+        name: EPS
+        description: "Even Parity Select. 1 for even parity, 0 for odd parity."
+      - bit: 5
+        name: Stick Parity
+        description: 1 to enable stick parity.
+      - bit: 6
+        name: Set Break
+        description: 1 to force SOUT to a spacing (low) state.
+      - bit: 7
+        name: DLAB
+        description: Divisor Latch Access Bit. 1 to access Divisor Latches.
+  - name: MODEM Control Register (MCR)
+    address: "4"
+    access: Read/Write
+    description: Controls the modem interface.
+    bits[6]{bit,name,description}:
+      0,DTR,Data Terminal Ready.
+      1,RTS,Request to Send.
+      2,OUT1,Auxiliary Output 1.
+      3,OUT2,Auxiliary Output 2.
+      4,LOOP,Loopback Mode.
+      5-7,Reserved,Always 0.
+  - name: Line Status Register (LSR)
+    address: "5"
+    access: Read-only
+    description: Provides status information about the data transfer.
+    bits[8]{bit,name,description}:
+      0,DR,Data Ready. 1 when there is data in the receiver FIFO.
+      1,OE,Overrun Error.
+      2,PE,Parity Error.
+      3,FE,Framing Error.
+      4,BI,Break Interrupt.
+      5,THRE,Transmitter Holding Register Empty. 1 when the transmitter FIFO is empty.
+      6,TEMT,Transmitter Empty. 1 when both the transmitter holding register and shift register are empty.
+      7,Error in RCVR FIFO,"1 when there is at least one error (parity, framing, or break) in the receiver FIFO."
+  - name: MODEM Status Register (MSR)
+    address: "6"
+    access: Read-only
+    description: Provides the current state of the modem control lines.
+    bits[8]{bit,name,description}:
+      0,DCTS,Delta Clear to Send. 1 if CTS has changed state.
+      1,DDSR,Delta Data Set Ready. 1 if DSR has changed state.
+      2,TERI,Trailing Edge of Ring Indicator. 1 if RI has changed from low to high.
+      3,DDCD,Delta Data Carrier Detect. 1 if DCD has changed state.
+      4,CTS,Clear to Send. Complement of the CTS input pin.
+      5,DSR,Data Set Ready. Complement of the DSR input pin.
+      6,RI,Ring Indicator. Complement of the RI input pin.
+      7,DCD,Data Carrier Detect. Complement of the DCD input pin.
+  - name: Scratchpad Register (SCR)
+    address: "7"
+    access: Read/Write
+    description: A general-purpose 8-bit register for temporary data storage.
+    bits[1]{bit,name,description}:
+      0-7,Data,User-defined data.
+  - name: Divisor Latch LSB (DLL)
+    address: 0 (DLAB=1)
+    access: Read/Write
+    description: Least significant byte of the baud rate divisor.
+    bits[1]{bit,name,description}:
+      0-7,Divisor Latch LSB,Bits 0-7 of the divisor.
+  - name: Divisor Latch MSB (DLM)
+    address: 1 (DLAB=1)
+    access: Read/Write
+    description: Most significant byte of the baud rate divisor.
+    bits[1]{bit,name,description}:
+      0-7,Divisor Latch MSB,Bits 8-15 of the divisor.

@@ -1,0 +1,77 @@
+name: Keyboard Commands & Responses
+description: Commands sent to and responses received from the keyboard controller (8042).
+system_commands[17]:
+  - code: ED
+    name: Set/Reset Mode Indicators
+    description: "Sets the keyboard LEDs (Scroll Lock, Num Lock, Caps Lock). The keyboard responds with ACK, waits for an option byte, and then ACKs again."
+    option_byte:
+      bits[3]{bit,name}:
+        0,Scroll-Lock
+        1,Num-Lock
+        2,Caps-Lock
+  - code: EE
+    name: Diagnostic Echo
+    description: The keyboard echoes the EE byte back to the system without an acknowledgement.
+  - code: F0
+    name: Select/Read Alternate Scan Code Sets
+    system: PS/2
+    description: Instructs the keyboard to use one of three make/break scan code sets. Requires an option byte.
+    option_byte:
+      values:
+        "00": return byte indicating scan code set in use
+        "01": select scan code set 1 (PC & XT)
+        "02": select scan code set 2
+        "03": select scan code set 3
+  - code: F2
+    name: Read Keyboard ID
+    system: PS/2
+    description: The keyboard responds with an ACK and a two-byte keyboard ID of 83AB.
+  - code: F3
+    name: Set Typematic Rate/Delay
+    description: Sets the typematic rate and delay. Requires a rate/delay option byte.
+  - code: F4
+    name: Enable Keyboard
+    description: Enables keyboard scanning.
+  - code: F5
+    name: Default w/Disable
+    description: Resets the keyboard to its power-on condition and disables scanning.
+  - code: F6
+    name: Set Default
+    description: Resets the keyboard to its power-on condition and continues scanning.
+  - code: F7
+    name: Set All Keys to Typematic
+    system: PS/2
+  - code: F8
+    name: Set All Keys to Make/Break
+    system: PS/2
+  - code: F9
+    name: Set All Keys to Make
+    system: PS/2
+  - code: FA
+    name: Set All Keys to Typematic Make/Break
+    system: PS/2
+  - code: FB
+    name: Set Key Type to Typematic
+    system: PS/2
+  - code: FC
+    name: Set Key Type to Make/Break
+    system: PS/2
+  - code: FD
+    name: Set Key Type to Make
+    system: PS/2
+  - code: FE
+    name: Resend
+    description: Should be sent when a transmission error is detected from the keyboard.
+  - code: FF
+    name: Reset
+    description: Resets the keyboard and performs a Basic Assurance Test (BAT).
+keyboard_responses[9]{code,description}:
+  "00",Key Detection Error or Overrun Error for Scan Code Set 1.
+  AA,BAT Completion Code (Success).
+  EE,Echo Response to the Echo command.
+  F0,Break Code Prefix in Scan Code Sets 2 and 3.
+  FA,Acknowledge (ACK).
+  FC,BAT Failure Code.
+  FE,Resend request from keyboard.
+  FF,Key Detection Error or Overrun Error for Scan Code Set 2 or 3.
+  83AB,Keyboard ID Response.

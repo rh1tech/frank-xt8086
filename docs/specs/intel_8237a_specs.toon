@@ -1,0 +1,306 @@
+intel_8237a_specifications:
+  general_info:
+    part_number: 8237A
+    manufacturer: Intel
+    device_type: High Performance Programmable DMA Controller
+    package: 40-pin DIP
+    technology: NMOS
+    channels: 4 independent DMA channels
+    data_bus_width: 8-bit
+    address_width: 16-bit
+    transfer_modes: 6 operating modes
+    priority_resolutions: Fixed priority and rotating priority
+    power_supply: +5V
+  pin_configuration:
+    data_bus:
+      "D0-D7":
+        pins[8]: 1,2,3,4,5,6,7,8
+        type: bidirectional
+        function: 8-bit data bus connection to system bus
+    address_bus:
+      "A0-A3":
+        pins[4]: 9,10,11,12
+        type: input
+        function: DMA channel and register select
+      "A4-A7":
+        pins[4]: 32,33,34,35
+        type: output
+        function: Upper 4 bits of 16-bit DMA address
+    control_pins:
+      CS:
+        pin: 13
+        function: Chip Select
+        active: low
+        description: Enables 8237A for CPU read/write operations
+      IOR:
+        pin: 15
+        function: I/O Read
+        active: low
+        description: CPU reads from 8237A registers
+      IOW:
+        pin: 14
+        function: I/O Write
+        active: low
+        description: CPU writes to 8237A registers
+      MEMR:
+        pin: 16
+        function: Memory Read
+        active: low
+        description: Read from memory during DMA transfer
+      MEMW:
+        pin: 17
+        function: Memory Write
+        active: low
+        description: Write to memory during DMA transfer
+      HLDA:
+        pin: 20
+        function: Hold Acknowledge
+        active: high
+        description: CPU acknowledges DMA request
+      HOLD:
+        pin: 19
+        function: Hold Request
+        active: high
+        description: 8237A requests bus control
+      AEN:
+        pin: 21
+        function: Address Enable
+        active: high
+        description: 8237A controls address bus
+      ADSTB:
+        pin: 22
+        function: Address Strobe
+        active: high
+        description: Strobes upper address byte onto address bus
+      READY:
+        pin: 23
+        function: Ready Input
+        active: high
+        description: Extends DMA cycle for slow devices
+    dma_request_pins:
+      "DREQ0-DREQ3":
+        pins[4]: 24,25,26,27
+        type: input
+        function: DMA request inputs
+        active: high (programmable)
+        description: Peripheral requests DMA service
+    dma_acknowledge_pins:
+      "DACK0-DACK3":
+        pins[4]: 28,29,30,31
+        type: output
+        function: DMA acknowledge outputs
+        active: low (programmable)
+        description: 8237A acknowledges DMA request
+    interrupt_pin:
+      EOP:
+        pin: 36
+        function: End of Process
+        active: low
+        description: Indicates DMA transfer completion or termination
+    clock_pin:
+      CLK:
+        pin: 18
+        function: Clock Input
+        frequency_range: 3-5 MHz
+        description: System clock for DMA operations
+    power_pins:
+      VCC:
+        pin: 40
+        voltage: +5V
+      GND:
+        pins[3]: 37,38,39
+        description: Ground connections
+  register_map:
+    address_decoding:
+      A3_A0_combinations:
+        "1000": Command Register (write only)
+        "1001": Status Register (read only)
+        "1010": Request Register (write only)
+        "1011": Write Single Mask Bit (write only)
+        "1100": Mode Register (write only)
+        "1101": Clear Byte Pointer Flip-Flop (write only)
+        "1110": Master Clear (write only)
+        "1111": Clear Mask Register (write only)
+        "0000": Channel 0 Address Register (read/write)
+        "0001": Channel 0 Count Register (read/write)
+        "0010": Channel 1 Address Register (read/write)
+        "0011": Channel 1 Count Register (read/write)
+        "0100": Channel 2 Address Register (read/write)
+        "0101": Channel 2 Count Register (read/write)
+        "0110": Channel 3 Address Register (read/write)
+        "0111": Channel 3 Count Register (read/write)
+    channel_registers:
+      address_register:
+        size: 16-bit
+        access: LSB then MSB
+        function: 16-bit starting address for DMA transfer
+        auto_increment: "Yes, after each transfer"
+      count_register:
+        size: 16-bit
+        access: LSB then MSB
+        function: "Transfer count (N transfers, N-1 stored)"
+        range: 1 to 65536 (0 = 65536)
+    control_registers:
+      command_register:
+        address: 0x08
+        write_only: true
+        bits:
+          bit_0: "DACK sense (0=active low, 1=active high)"
+          bit_1: "DREQ sense (0=active high, 1=active low)"
+          bit_2: "Fixed priority (0=fixed, 1=rotating)"
+          bit_3: "Extended write selection (0=late, 1=early)"
+          bit_4: "Priority rotation disabled (0=enable, 1=disable)"
+          bit_5: "Auto-initialize enable (0=disable, 1=enable)"
+          bit_6: "Address timing select (0=standard, 1=compressed)"
+          bit_7: "Memory-to-memory enable (0=disable, 1=enable)"
+      status_register:
+        address: 0x08
+        read_only: true
+        bits:
+          bit_0: "Channel 0 DMA request status (0=no request, 1=request pending)"
+          bit_1: Channel 1 DMA request status
+          bit_2: Channel 2 DMA request status
+          bit_3: Channel 3 DMA request status
+          bit_4: "Channel 0 terminal count reached (0=no, 1=yes)"
+          bit_5: Channel 1 terminal count reached
+          bit_6: Channel 2 terminal count reached
+          bit_7: Channel 3 terminal count reached
+      request_register:
+        address: 0x09
+        write_only: true
+        bits:
+          "bit_0-1": "Channel select (00=ch0, 01=ch1, 10=ch2, 11=ch3)"
+          bit_2: "Request bit (0=no request, 1=software request)"
+      single_mask_register:
+        address: 0x0A
+        write_only: true
+        bits:
+          "bit_0-1": Channel select
+          bit_2: "Mask bit (0=unmask, 1=mask)"
+      mode_register:
+        address: 0x0B
+        write_only: true
+        bits:
+          "bit_0-1": Channel select
+          "bit_2-3": "Transfer type (00=verify, 01=write, 10=read, 11=invalid)"
+          "bit_4-5": "Auto-initialize (00=disable, 01=enable, 1x=reserved)"
+          "bit_6-7": "Transfer mode (00=demand, 01=single, 02=block, 03=cascade)"
+  transfer_modes:
+    demand_mode:
+      description: Normal DMA operation
+      characteristics: Transfer continues until DREQ goes low or TC reached
+      use_case: Standard peripheral DMA transfers
+    single_mode:
+      description: Single byte transfer per request
+      characteristics: "One transfer per DREQ, then releases bus"
+      use_case: Time-critical operations requiring CPU access between transfers
+    block_mode:
+      description: Block transfer until TC
+      characteristics: Continuous transfer until count expires or EOP
+      use_case: High-speed block transfers like memory copy
+    cascade_mode:
+      description: Cascade multiple 8237A controllers
+      characteristics: Used for expanding to more than 4 channels
+      use_case: IBM PC uses two 8237As for 7 DMA channels
+    verify_mode:
+      description: Verify transfer without actual data movement
+      characteristics: Performs bus cycles but doesn't transfer data
+      use_case: Memory verification operations
+  transfer_types:
+    verify_transfer:
+      value: "00"
+      description: Verify operation (no actual data transfer)
+    write_transfer:
+      value: "01"
+      description: Write from I/O to memory (I/O → Memory)
+    read_transfer:
+      value: "10"
+      description: Read from memory to I/O (Memory → I/O)
+    invalid:
+      value: "11"
+      description: Reserved - do not use
+  priority_system:
+    fixed_priority:
+      default_order: Channel 0 > Channel 1 > Channel 2 > Channel 3
+      characteristics: "Channel 0 has highest priority, Channel 3 lowest"
+      programming: Set bit 2 of command register to 0
+    rotating_priority:
+      description: Priority rotates after service
+      characteristics: Serviced channel moves to lowest priority
+      programming: Set bit 2 of command register to 1
+  auto_initialization:
+    description: Automatically reload address and count after TC
+    programming: Set bit 5 of command register or mode register bit 4-5
+    operation: "After TC, channel reloads from base registers and can continue"
+  address_generation:
+    address_strobe:
+      signal: ADSTB
+      function: Latches upper 8 bits of address onto external latch
+      timing: Active during first clock cycle of DMA transfer
+    address_enable:
+      signal: AEN
+      function: Enables external address latch and disables CPU address bus
+      timing: Active during entire DMA transfer
+    address_increment:
+      behavior: Automatically increments after each transfer
+      exceptions: Not used in verify mode
+  terminal_count:
+    eop_signal:
+      pin: EOP
+      active: low
+      description: Generated when transfer count expires or externally terminated
+    count_register:
+      behavior: Counts down from N to 0
+      zero_value: Represents 65536 transfers
+  timing_parameters:
+    clock_frequency:
+      min: 3 MHz
+      max: 5 MHz
+      typical: 4.77 MHz (IBM PC)
+    transfer_rates:
+      maximum: 1.6 MB/s at 5 MHz clock
+      typical: 1.2 MB/s at 4.77 MHz
+    bus_cycle_timing:
+      standard_cycle: 4 clock cycles
+      compressed_timing: 3 clock cycles (when enabled)
+  electrical_characteristics:
+    power_supply:
+      vcc: +5V ±10%
+      current_consumption: 150mA typical
+    input_levels:
+      vih: +2.0V minimum
+      vil: +0.8V maximum
+    output_levels:
+      voh: +2.4V minimum at -400μA
+      vol: +0.45V maximum at 2mA
+  programming_sequence:
+    initialization[6]: Master clear (reset controller),Clear mask register (enable all channels),Set command register (configure operation),Program mode registers for each channel,Load address and count registers,Unmask desired channels
+    address_count_loading[5]: Clear byte pointer flip-flop,Write LSB of address register,Write MSB of address register,Write LSB of count register,Write MSB of count register
+  special_features:
+    memory_to_memory:
+      description: Transfer between memory locations using channel 0 and 1
+      programming: Enable bit 7 of command register
+      operation: "Channel 0 provides source, channel 1 provides destination"
+    address_compression:
+      description: Reduced address generation for high-speed transfers
+      programming: Set bit 6 of command register
+      benefit: Faster DMA cycles
+  ibm_pc_implementation:
+    controller_usage: Two 8237A-5 chips
+    first_controller:
+      channels: 0-3
+      port_base: 0x00
+      channel_0: DRAM refresh (8237 mode)
+      channel_1: Free (available)
+      channel_2: Floppy disk controller
+      channel_3: Hard disk controller
+    second_controller:
+      channels: 4-7
+      port_base: 0xC0
+      channel_4: Cascade to first controller
+      channel_5: Free (available)
+      channel_6: Free (available)
+      channel_7: Free (available)
+    page_registers:
+      purpose: Provide upper 4 bits of 20-bit address
+      ports: "0x81 (CH2), 0x82 (CH3), 0x83 (CH0), 0x87 (CH1)"

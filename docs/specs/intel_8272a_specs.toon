@@ -1,0 +1,347 @@
+intel_8272a_specifications:
+  general_info:
+    part_number: 8272A
+    manufacturer: Intel
+    device_type: Single/Double Density Floppy Disk Controller
+    package: 40-pin DIP
+    technology: NMOS
+    drives_supported: 4 floppy drives
+    media_types[5]: 8-inch Single Density (FM),8-inch Double Density (MFM),5.25-inch Single Density (FM),5.25-inch Double Density (MFM),3.5-inch Double Density (MFM)
+    data_rate: 250/500 Kbps
+    power_supply: +5V
+  pin_configuration:
+    data_bus:
+      "D0-D7":
+        pins[8]: 1,2,3,4,5,6,7,8
+        type: bidirectional
+        function: 8-bit data bus connection to system bus
+    address_pins:
+      A0:
+        pin: 9
+        function: Address input 0
+        description: Register select
+      CS:
+        pin: 10
+        function: Chip Select
+        active: low
+        description: Enables 8272A for CPU operations
+    control_pins:
+      RD:
+        pin: 11
+        function: Read Control
+        active: low
+        description: CPU reads from 8272A registers
+      WR:
+        pin: 12
+        function: Write Control
+        active: low
+        description: CPU writes to 8272A registers
+      RESET:
+        pin: 13
+        function: Reset
+        active: high
+        description: Resets controller to initial state
+      INTR:
+        pin: 14
+        function: Interrupt Request
+        active: high
+        description: Interrupt output to CPU
+      DRQ:
+        pin: 15
+        function: DMA Request
+        active: high
+        description: Request for DMA transfer
+      DACK:
+        pin: 16
+        function: DMA Acknowledge
+        active: low
+        description: DMA controller acknowledges request
+      TC:
+        pin: 17
+        function: Terminal Count
+        active: high
+        description: DMA transfer complete
+    drive_select_pins:
+      DS0:
+        pin: 18
+        function: Drive Select 0
+        active: low
+        description: Select drive 0
+      DS1:
+        pin: 19
+        function: Drive Select 1
+        active: low
+        description: Select drive 1
+      DS2:
+        pin: 20
+        function: Drive Select 2
+        active: low
+        description: Select drive 2
+      DS3:
+        pin: 21
+        function: Drive Select 3
+        active: low
+        description: Select drive 3
+    motor_control_pins:
+      MTR0:
+        pin: 22
+        function: Motor Control 0
+        active: high
+        description: Enable motor for drive 0
+      MTR1:
+        pin: 23
+        function: Motor Control 1
+        active: high
+        description: Enable motor for drive 1
+      MTR2:
+        pin: 24
+        function: Motor Control 2
+        active: high
+        description: Enable motor for drive 2
+      MTR3:
+        pin: 25
+        function: Motor Control 3
+        active: high
+        description: Enable motor for drive 3
+    drive_interface_pins:
+      RW_DATA:
+        pin: 26
+        function: Read/Write Data
+        type: bidirectional
+        description: Serial data to/from floppy drive
+      MFM_FM:
+        pin: 27
+        function: MFM/FM Select
+        description: "Selects recording mode (high=MFM, low=FM)"
+      SIDE_SEL:
+        pin: 28
+        function: Side Select
+        description: "Selects head side (high=side 1, low=side 0)"
+      IDX:
+        pin: 29
+        function: Index
+        active: high
+        description: Index pulse from drive
+      TRK0:
+        pin: 30
+        function: Track 0
+        active: high
+        description: Drive at track 0
+      WPRT:
+        pin: 31
+        function: Write Protect
+        active: high
+        description: Disk is write protected
+      RDY:
+        pin: 32
+        function: Ready
+        active: high
+        description: Drive is ready
+      HDSEL:
+        pin: 33
+        function: Head Select
+        description: Head select signal
+      WE:
+        pin: 34
+        function: Write Enable
+        active: low
+        description: Enable write operation
+      TG43:
+        pin: 35
+        function: Track > 43
+        active: high
+        description: Current track > 43
+      VCO:
+        pin: 36
+        function: VCO Sync
+        description: Sync signal for data separator
+    clock_pin:
+      CLK:
+        pin: 37
+        function: Clock Input
+        frequency: 8 MHz
+        description: System clock
+    power_pins:
+      VCC:
+        pin: 40
+        voltage: +5V
+      GND:
+        pins[2]: 38,39
+        description: Ground connections
+  register_map:
+    address_a0_0:
+      main_status_register:
+        name: Main Status Register (MSR)
+        access: read only
+        bits:
+          bit_0: "Drive 0 busy (0=ready, 1=busy)"
+          bit_1: Drive 1 busy
+          bit_2: Drive 2 busy
+          bit_3: Drive 3 busy
+          bit_4: FDC busy (executing command)
+          bit_5: "Non-DMA mode (0=DMA, 1=non-DMA)"
+          bit_6: "Data I/O direction (0=FDC→CPU, 1=CPU→FDC)"
+          bit_7: Request for master (RQM) (1=ready for data transfer)
+    address_a0_1:
+      data_fifo:
+        name: Data FIFO
+        access: read/write
+        function: Command parameters and result data
+        description: Bidirectional data register for commands and status
+  commands:
+    read_data:
+      command_byte: "0x06 (MT=0, MFM=0, SK=0)"
+      parameters[3]: "MT - Multi-track (0=single side, 1=both sides)","MFM - Recording mode (0=FM, 1=MFM)","SK - Skip deleted data (0=no, 1=yes)"
+      additional_parameters[9]: "HDS - Head select (0=head 0, 1=head 1)","DS1, DS0 - Drive select (binary)","C - Cylinder number (0-79 for 5.25\")",H - Head number (0-1),R - Record (sector) number (1-26),"N - Number of bytes per sector (0=128, 1=256, 2=512, 3=1024)",EOT - End of track (last sector number),GPL - Gap length (varies by format),DTL - Data length (N=0 only)
+      results[7]: ST0 - Status byte 0,ST1 - Status byte 1,ST2 - Status byte 2,C - Cylinder number,H - Head number,R - Sector number,N - Number of bytes per sector
+    write_data:
+      command_byte: "0x05 (MT=0, MFM=0)"
+      parameters: Same as read_data
+      results: Same as read_data
+    read_id:
+      command_byte: 0x0A (MFM=0)
+      parameters[3]: "MFM - Recording mode (0=FM, 1=MFM)",HDS - Head select,"DS1, DS0 - Drive select"
+      results[2]: "ST0, ST1, ST2 - Status bytes","C, H, R, N - Cylinder, head, sector, size from ID field"
+    format_track:
+      command_byte: 0x0D (MFM=0)
+      parameters[7]: MFM - Recording mode,HDS - Head select,"DS1, DS0 - Drive select",N - Number of bytes per sector,SC - Number of sectors per track,GPL - Gap length,D - Filler byte for formatted sectors
+      results[1]: "ST0, ST1, ST2 - Status bytes"
+    seek:
+      command_byte: 0x0F
+      parameters[3]: HDS - Head select,"DS1, DS0 - Drive select",NCN - New cylinder number (0-79)
+      results[1]: "ST0, ST1 - Status bytes"
+    recalibrate:
+      command_byte: 0x07
+      parameters[2]: HDS - Head select,"DS1, DS0 - Drive select"
+      results[1]: "ST0, ST1 - Status bytes"
+    sense_interrupt_status:
+      command_byte: 0x08
+      parameters[0]:
+      results[2]: ST0 - Status byte 0,PCN - Present cylinder number
+    specify:
+      command_byte: 0x03
+      parameters[4]: SRT - Step rate time (1-16),HUT - Head unload time (16-240 ms),"NDMA - Non-DMA mode (0=DMA, 1=non-DMA)",HLT - Head load time (2-254 ms)
+      results[0]:
+  status_bytes:
+    st0_status:
+      bits:
+        "bit_0-1": "US0, US1 - Unit select (last command)"
+        bit_2: HD - Head select (last command)
+        bit_3: NR - Not ready (drive not ready)
+        bit_4: EC - Equipment check (drive fault)
+        bit_5: SE - Seek end (seek complete)
+        bit_6: "IC - Interrupt code (00=normal, 01=abnormal, 10=invalid command, 11=polling)"
+        bit_7: Always 0
+    st1_status:
+      bits:
+        bit_0: MA - Missing address mark
+        bit_1: NW - Not writable (write protected)
+        bit_2: ND - No data (can't find sector)
+        bit_3: OR - Overrun (CPU too slow)
+        bit_4: DE - Data error (CRC)
+        bit_5: EN - End of cylinder
+        bit_6: Always 0
+        bit_7: Always 0
+    st2_status:
+      bits:
+        bit_0: MD - Missing data address mark
+        bit_1: BC - Bad cylinder (wrong cylinder)
+        bit_2: SN - Scan not satisfied (search failed)
+        bit_3: SH - Scan hit satisfied
+        bit_4: WC - Wrong cylinder (cylinder mismatch)
+        bit_5: DD - Data error in data field
+        bit_6: CM - Control mark (deleted data)
+        bit_7: Always 0
+  disk_formats:
+    "8_inch_single_density":
+      media_type: FM
+      tracks_per_side: 77
+      sectors_per_track: 26
+      bytes_per_sector: 128
+      total_capacity: 256KB
+    "8_inch_double_density":
+      media_type: MFM
+      tracks_per_side: 77
+      sectors_per_track: 26
+      bytes_per_sector: 256
+      total_capacity: 512KB
+    "5.25_inch_single_density":
+      media_type: FM
+      tracks_per_side: 40
+      sectors_per_track: 26
+      bytes_per_sector: 128
+      total_capacity: 160KB
+    "5.25_inch_double_density":
+      media_type: MFM
+      tracks_per_side: 40
+      sectors_per_track: 18
+      bytes_per_sector: 512
+      total_capacity: 360KB
+    "5.25_inch_high_density":
+      media_type: MFM
+      tracks_per_side: 80
+      sectors_per_track: 15
+      bytes_per_sector: 512
+      total_capacity: 1.2MB
+    "3.5_inch_double_density":
+      media_type: MFM
+      tracks_per_side: 80
+      sectors_per_track: 18
+      bytes_per_sector: 512
+      total_capacity: 720KB
+    "3.5_inch_high_density":
+      media_type: MFM
+      tracks_per_side: 80
+      sectors_per_track: 18
+      bytes_per_sector: 512
+      total_capacity: 1.44MB
+  timing_parameters:
+    data_separation:
+      vco_lock_time: 3 bit times
+      data_window: ±2 bit times
+    motor_operations:
+      spin_up_time: 500ms typical
+      spin_down_time: 2s typical
+      settle_time: 15ms after seek
+    step_rates:
+      min: 1ms per track
+      max: 16ms per track
+      typical: 6ms per track
+  electrical_characteristics:
+    power_supply:
+      vcc: +5V ±10%
+      current_consumption: 300mA typical
+    input_levels:
+      vih: +2.0V minimum
+      vil: +0.8V maximum
+    output_levels:
+      voh: +2.4V minimum at -400μA
+      vol: +0.45V maximum at 2mA
+  programming_sequence:
+    initialization[4]: Reset controller,Issue SPECIFY command (set timing parameters),Configure drive motors as needed,Recalibrate drives to track 0
+    read_operation[4]: Check MSR for RQM bit,Issue READ DATA command with parameters,Wait for interrupt or poll MSR,Read result phase (status bytes and data)
+    write_operation[4]: Check MSR for RQM bit,Issue WRITE DATA command with parameters,Transfer data via FIFO,Wait for interrupt and read status
+  error_conditions:
+    common_errors:
+      not_ready: Drive not ready or motor off
+      write_protect: Attempt to write to protected disk
+      seek_error: Cannot find track 0 during recalibrate
+      crc_error: Data corruption detected
+      missing_address_mark: Cannot find sector header
+      overrun: CPU too slow for data transfer
+  ibm_pc_implementation:
+    port_addresses:
+      primary: 0x3F0-0x3F7
+      secondary: 0x370-0x377
+    port_mapping:
+      "0x3F2": "Digital Output Register (motor control, reset, drive select)"
+      "0x3F4": Main Status Register (read only)
+      "0x3F5": Data FIFO (read/write)
+      "0x3F7": Disk Change Register (read only)
+    dma_channel: Channel 2
+    interrupt: IRQ6
+    standard_configuration:
+      drive_A: "Primary controller, drive 0"
+      drive_B: "Primary controller, drive 1"
+      data_rate: "250 Kbps (single), 500 Kbps (double)"
+      motor_timeout: 2 seconds

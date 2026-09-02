@@ -1,0 +1,102 @@
+name: 8259 Programmable Interrupt Controller
+aliases[1]: PIC
+description: Manages hardware interrupts for the CPU.
+ports:
+  master[2]{address,name}:
+    20h,"Command Register (ICW1, OCW2, OCW3)"
+    21h,"Data/IMR Register (ICW2, ICW3, ICW4, OCW1)"
+  slave[2]{address,name}:
+    A0h,"Command Register (ICW1, OCW2, OCW3)"
+    A1h,"Data/IMR Register (ICW2, ICW3, ICW4, OCW1)"
+initialization_command_words[5]:
+  - name: ICW1
+    port: 20h/A0h
+    bits[6]{bit,description}:
+      0,"1=ICW4 is needed, 0=no ICW4 needed"
+      1,"1=single 8259, 0=cascading 8259's"
+      2,"1=4 byte interrupt vectors, 0=8 byte int vectors"
+      3,"1=level triggered mode, 0=edge triggered mode"
+      4,must be 1 for ICW1
+      5-7,must be zero for PC systems
+  - name: ICW2
+    port: 21h/A1h
+    bits[2]{bit,description}:
+      0-2,000= on 80x86 systems
+      3-7,A7-A3 of 80x86 interrupt vector
+  - name: ICW3 (Master)
+    port: 21h
+    bits[8]{bit,description}:
+      0,"1=interrupt request 0 has slave, 0=no slave"
+      1,"1=interrupt request 1 has slave, 0=no slave"
+      2,"1=interrupt request 2 has slave, 0=no slave"
+      3,"1=interrupt request 3 has slave, 0=no slave"
+      4,"1=interrupt request 4 has slave, 0=no slave"
+      5,"1=interrupt request 5 has slave, 0=no slave"
+      6,"1=interrupt request 6 has slave, 0=no slave"
+      7,"1=interrupt request 7 has slave, 0=no slave"
+  - name: ICW3 (Slave)
+    port: A1h
+    bits[2]{bit,description}:
+      0-2,master interrupt request slave is attached to
+      3-7,must be zero
+  - name: ICW4
+    port: 21h/A1h
+    bits[5]:
+      - bit: 0
+        description: "1 for 80x86 mode, 0 = MCS 80/85 mode"
+      - bit: 1
+        description: "1 = auto EOI, 0=normal EOI"
+      - bit: 2-3
+        name: Buffering Mode
+        values:
+          "10": buffered mode slave (PC mode)
+          "11": buffered mode master (PC mode)
+          "00": not buffered
+          "01": not buffered
+      - bit: 4
+        description: "1 = special fully nested mode (SFNM), 0=sequential"
+      - bit: 5-7
+        description: unused (set to zero)
+operation_control_words[3]:
+  - name: OCW1 / Interrupt Mask Register (IMR)
+    port: 21h/A1h
+    bits[8]{bit,description}:
+      0,"0 = service IRQ0, 1 = mask off"
+      1,"0 = service IRQ1, 1 = mask off"
+      2,"0 = service IRQ2, 1 = mask off"
+      3,"0 = service IRQ3, 1 = mask off"
+      4,"0 = service IRQ4, 1 = mask off"
+      5,"0 = service IRQ5, 1 = mask off"
+      6,"0 = service IRQ6, 1 = mask off"
+      7,"0 = service IRQ7, 1 = mask off"
+  - name: OCW2 / Interrupt Command Register (ICR)
+    port: 20h/A0h
+    bits[3]:
+      - bit: 0-2
+        description: interrupt request level to act upon
+      - bit: 3-4
+        description: must be 0 for OCW2
+      - bit: 5-7
+        name: EOI Type
+        values:
+          "100": rotate in automatic EOI mode
+          "101": rotate on non-specific EOI command
+          "110": set priority command
+          "111": rotate on specific EOI command
+          "001": non-specific EOI command
+          "010": NOP
+          "011": specific EOI command
+  - name: OCW3
+    port: 20h/A0h
+    bits[8]{bit,description}:
+      0,"1=read IRR on next read, 0=read ISR on next read"
+      1,"1=act on value of bit 0, 0=no action if bit 0 set"
+      2,"1=poll command issued, 0=no poll command issued"
+      3,must be 1 for OCW3
+      4,must be 0 for OCW3
+      5,"1=set special mask, 0=reset special mask"
+      6,"1=act on value of bit 5, 0=no action if bit 5 set"
+      7,not used (zero)
+internal_registers[2]{name,description}:
+  IRR,"Interrupt Request Register: maintains a bit vector of which IRQ hardware events are awaiting service."
+  ISR,"In Service Register: tracks IRQ line currently being serviced."

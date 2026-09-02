@@ -1,0 +1,121 @@
+name: 8042 Keyboard Controller
+description: Keyboard controller for AT and PS/2 systems.
+ports[2]{address,name,description}:
+  60h,Data Register,"Read: 8042 output register. Write: 8042 data register."
+  64h,Status/Command Register,"Read: 8042 status register. Write: 8042 command register."
+status_register:
+  address: 64h
+  access: read
+  bits[8]{bit,description}:
+    0,Output register (60h) has data for system
+    1,Input register (60h/64h) has data for 8042
+    2,System flag (set to 0 after power on reset)
+    3,Data in input register is command (1) or data (0)
+    4,"1=keyboard enabled, 0=keyboard disabled (via switch)"
+    5,1=transmit timeout (data transmit not complete)
+    6,1=receive timeout (data transmit not complete)
+    7,"1=even parity rec'd, 0=odd parity rec'd (should be odd)"
+commands[23]:
+  - code: "20"
+    name: Read 8042 Command Byte
+    description: Current 8042 command byte is placed in port 60h.
+  - code: "60"
+    name: Write 8042 Command Byte
+    description: Next data byte written to port 60h is placed in 8042 command register.
+    command_byte:
+      bits[8]{bit,description}:
+        0,1=enable output register full interrupt
+        1,should be 0
+        2,"1=set status register system, 0=clear"
+        3,"1=override keyboard inhibit, 0=allow inhibit"
+        4,disable keyboard I/O by driving clock line low
+        5,"disable auxiliary device, drives clock line low"
+        6,"IBM scancode translation 0=AT, 1=PC/XT"
+        7,"reserved, should be 0"
+  - code: A4
+    name: Password Installed Test
+    description: "Returned data from port 60h: FA=password installed, F1=no password"
+  - code: A5
+    name: Load Security
+    description: Bytes written to port 60h will be read until a null (0) is found.
+  - code: A6
+    name: Enable Security
+    description: Works only if a password is already loaded
+  - code: A7
+    name: Disable Auxiliary Interface
+    description: Sets Bit 5 of command register stopping auxiliary I/O by driving the clock line low
+  - code: A8
+    name: Enable Auxiliary Interface
+    description: Clears Bit 5 of command register
+  - code: A9
+    name: Auxiliary Interface Test
+    description: Clock and data lines are tested; results placed at port 60h.
+    results:
+      "00": no error
+      "01": keyboard clock line is stuck low
+      "02": keyboard clock line is stuck high
+      "03": keyboard data line is stuck low
+      "04": keyboard data line is stuck high
+  - code: AA
+    name: Self Test
+    description: "Diagnostic result placed at port 60h, 55h=OK"
+  - code: AB
+    name: Keyboard Interface Test
+    description: Clock and data lines are tested; results placed at port 60h are listed with command A9
+  - code: AC
+    name: Diagnostic Dump
+    description: "Sends 16 bytes of 8042's RAM, current input port state, current output port state and 8042 program status word to port 60h in scan-code format."
+  - code: AD
+    name: Disable Keyboard Interface
+    description: Sets Bit 4 of command register stopping keyboard I/O by driving the clock line low
+  - code: AE
+    name: Enable Keyboard Interface
+    description: Clears Bit 4 of command register enabling keyboard interface.
+  - code: C0
+    name: Read Input Port
+    description: Data is read from its input port and written to output register at port 60h.
+    input_port_bits[5]{bit,description}:
+      0-3,undefined
+      4,"1=keyboard not inhibited, 0=keyboard inhibited"
+      5,"1=primary display is MDA, 0=primary display is CGA"
+      6,"1=manufacturing jumper not installed, 0=installed"
+      7,"1=enable 2nd 256K of motherboard RAM, 0=disable"
+  - code: C1
+    name: Poll Input Port Low Bits
+    description: Bits 0-3 of port 1 placed in status Bits 4-7
+  - code: C2
+    name: Poll Input Port High Bits
+    description: Bits 4-7 of port 1 placed in status Bits 4-7
+  - code: D0
+    name: Read Output Port
+    description: Data is read from 8042 output port and placed in output register.
+  - code: D1
+    name: Write Output Port
+    description: Next byte written to port 60h is placed in the 8042 output port.
+    output_port_bits[8]{bit,description}:
+      0,system reset line
+      1,gate A20
+      2,undefined
+      3,output buffer full
+      4,input buffer empty
+      5,keyboard clock (output)
+      6,keyboard data (output)
+      7,undefined
+  - code: D2
+    name: Write Keyboard Output Register
+    description: On PS/2 systems the next data byte written to port 60h input register is written to port 60h output register as if initiated by a device; invokes interrupt if enabled
+  - code: D3
+    name: Write Auxiliary Output Register
+    description: On PS/2 systems the next data byte written to port 60h input register is written to port 60h output register as if initiated by a device; invokes interrupt if enabled
+  - code: D4
+    name: Write Auxiliary Device
+    description: On PS/2 systems the next data byte written to input register a port at 60h is sent to the auxiliary device
+  - code: E0
+    name: Read Test Inputs
+    description: 8042 reads its T0 and T1 inputs; data is placed in output register.
+    test_input_bits[2]{bit,description}:
+      0,keyboard data
+      1,keyboard clock
+  - code: Fx
+    name: Pulse Output Port
+    description: "Bits 0-3 of the 8042 output port can be pulsed low for 6 us; Bits 0-3 of command indicate which Bits should be pulsed; 0=pulse, 1=don't pulse; pulsing Bit 0 results in CPU reset."

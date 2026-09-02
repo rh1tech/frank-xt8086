@@ -1,0 +1,98 @@
+functions[72]{name,line}:
+  post,603
+  out_char,1301
+  print,1318
+  locate,1333
+  number,1350
+  big_number,1364
+  double_number,1377
+  formatted_ascii_output,1388
+  print_mem_kb,1413
+  display_cpu,1445
+  fpu_check,1461
+  clock_check,1479
+  checksum,1508
+  boot_basic,1525
+  ipl,1557
+  cpu_test,1631
+  int_9_enhanced,1680
+  digit,1768
+  int_19,1785
+  int_14,1805
+  int_16,1901
+  int_9,2040
+  set_insert_flags,2301
+  stuff_keyboard_buffer,2328
+  int_13,2378
+  video_mem_test,2860
+  clear_upper_memory,2886
+  check_ctrl_alt_del,2915
+  int_E,2933
+  int_1E,3034
+  int_17,3049
+  int_10,3130
+  int_1D,3190
+  int_10_dispatch,3231
+  int_10_func_0,3245
+  int_10_func_1,3351
+  int_10_func_2,3362
+  int_10_func_3,3374
+  int_10_func_4,3391
+  int_10_func_5,3461
+  int_10_func_6_7,3482
+  int_10_func_8_9_10,3653
+  int_10_func_11,3999
+  int_10_func_12,4009
+  int_10_func_13,4038
+  int_10_func_14,4060
+  int_10_func_15,4134
+  mode_check,4149
+  dot_offset,4168
+  pen_pos,4196
+  text_rc_col,4216
+  gfx_rc_col,4235
+  set_cursor,4251
+  video_init,4282
+  beep,4301
+  int_12,4333
+  int_11,4347
+  int_15,4361
+  int_2,4371
+  cpu_check,4510
+  mem_test,4526
+  floppy_speed,4575
+  toggle_turbo,4589
+  delay_keypress,4626
+  clear_screen,4649
+  title_print,4668
+  get_key,4891
+  ignore_int,4920
+  dummy_int,4963
+  int_5,4971
+  print_cr_lf,5050
+  power,5069
+strings[24]{name,line,value}:
+  str_banner,581,Turbo PC BIOS v3.1 - 10/28/2017
+  str_ega_vga,592," EGA/VGA Graphics"
+  str_parallel,593," Parallel Port at "
+  str_game,594," Game Port at 201h"
+  str_no_basic,1002,"No ROM BASIC, booting from disk..."
+  str_insert_disk,1792,"Insert BOOT disk in A:"
+  str_serial,1898," Serial Port at "
+  str_banner_2,2355,Upgrades by Ya`akov Miles & Jon Petrosky
+  str_8088,2356,8088 CPU (
+  str_boot_basic,2357,Press SPACE to boot ROM BASIC...
+  str_cga,3127," CGA Graphics"
+  str_last_line,3187,""
+  str_mono,4318," Mono/Hercules Graphics"
+  str_clock,4319," Clock"
+  str_ram_test,4321,"Testing RAM:    K OK"
+  str_error,4323,"System Error: "
+  str_parity_err,4324,"Parity error at: ????? "
+  str_continue,4325,"Continue? "
+  str_no_fpu,4507,No FPU)
+  str_h,4861,h
+  str_system,5047,"System "
+  str_v20,5065,V20 CPU (
+  str_8087,5066,8087 FPU)
+  date,5078,10/28/17

@@ -1,0 +1,91 @@
+#
+# frank-xt8086 — an RP2350B acting as the whole chipset for a real 8086
+#
+# Copyright (c) 2026 Mikhail Matveev <xtreme@rh1.tech>
+# https://github.com/rh1tech/frank-xt8086
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  attribution:
+    name: Attribution
+    # Cheap and first: a commit crediting an AI must never reach main, and finding out at
+    # merge time is finding out too late. A local hook cannot do this job — it protects
+    # only whoever installed it, and never runs for a commit authored through GitHub's own
+    # web surface. This is the enforcement that actually applies to everyone.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history on a PR so every commit in the branch is inspected, not just the tip.
+          fetch-depth: 0
+
+      - name: Reject AI attribution in commit messages
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BASE}" ] || [ "${BASE}" = "0000000000000000000000000000000000000000" ]; then
+            range="${HEAD_SHA} -1"
+          else
+            range="${BASE}..${HEAD_SHA}"
+          fi
+          echo "Inspecting: ${range}"
+          # shellcheck disable=SC2086
+          offenders=$(git log --format='%H%x09%an <%ae>%x09%s%n%b' ${range} \
+            | grep -inE 'co-authored-by:.*(copilot|claude|chatgpt|gpt-|anthropic|openai|codex|cursor|devin|gemini|bard)|generated with \[?(claude|copilot|chatgpt)|assisted-by:|claude-session' || true)
+          if [ -n "${offenders}" ]; then
+            echo "::error::Commit messages credit an AI. Remove the trailer and amend/rebase."
+            echo "${offenders}"
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          bots=$(git log --format='%H %an <%ae>' ${range} \
+            | grep -iE 'copilot|claude|chatgpt|anthropic|openai\[bot\]' || true)
+          if [ -n "${bots}" ]; then
+            echo "::error::Commits authored by an AI account."
+            echo "${bots}"
+            exit 1
+          fi
+
+  build:
+    name: Build
+    needs: attribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Arm toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
+
+      - name: Fetch the Pico SDK
+        run: |
+          git clone --depth 1 --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git "$HOME/pico-sdk"
+          git -C "$HOME/pico-sdk" submodule update --init --depth 1 lib/tinyusb
+
+      # Both clocks, because CPU_SPEED reaches the QMI divisor and the PIO
+      # dividers and a change that only compiles at one of them is a change
+      # that will surprise somebody at the bench.
+      - name: Build (504 MHz)
+        env:
+          PICO_SDK_PATH: /home/runner/pico-sdk
+        run: |
+          cmake -S app -B app/build -DPICO_BOARD=frank_xt8086 -DCPU_SPEED=504
+          cmake --build app/build -j"$(nproc)"
+
+      - name: Build (252 MHz, serial console on)
+        env:
+          PICO_SDK_PATH: /home/runner/pico-sdk
+        run: |
+          cmake -S app -B app/build-252 -DPICO_BOARD=frank_xt8086 \
+                -DCPU_SPEED=252 -DSERIAL_CONSOLE=ON
+          cmake --build app/build-252 -j"$(nproc)"

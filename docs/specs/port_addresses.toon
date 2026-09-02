@@ -1,0 +1,108 @@
+name: Common I/O Port Addresses
+description: "A list of common I/O port addresses for PC, XT, AT, and PS/2 systems."
+port_ranges[23]:
+  - range: 000-00F
+    device: 8237 DMA controller
+    ports[16]{address,description}:
+      "000",Channel 0 address register
+      "001",Channel 0 word count
+      "002",Channel 1 address register
+      "003",Channel 1 word count
+      "004",Channel 2 address register
+      "005",Channel 2 word count
+      "006",Channel 3 address register
+      "007",Channel 3 word count
+      "008",Status/command register
+      "009",Request register
+      00A,Mask register
+      00B,Mode register
+      00C,Clear MSB/LSB flip flop
+      00D,Master clear temp register
+      00E,Clear mask register
+      00F,Multiple mask register
+  - range: 020-02F
+    device: 8259A Master Programmable Interrupt Controller
+    ports[2]{address,description}:
+      "020",8259 Command port
+      "021",8259 Interrupt mask register
+  - range: 040-05F
+    device: 8253 or 8254 Programmable Interval Timer (PIT)
+    ports[6]{address,description}:
+      "040","8253 channel 0, counter divisor"
+      "041","8253 channel 1, RAM refresh counter"
+      "042","8253 channel 2, Cassette and speaker functions"
+      "043",8253 mode control
+      "044",8254 PS/2 extended timer
+      "047",8254 Channel 3 control byte
+  - range: 060-067
+    device: "8255 Programmable Peripheral Interface (PC,XT, PCjr)"
+    ports[4]{address,description}:
+      "060",8255 Port A keyboard input/output buffer
+      "061",8255 Port B output
+      "062",8255 Port C input
+      "063",8255 Command/Mode control register
+  - range: 060-06F
+    device: "8042 Keyboard Controller (AT,PS/2)"
+    ports[3]{address,description}:
+      "060",8042 Keyboard input/output buffer register
+      "061",8042 system control port
+      "064",8042 Keyboard command/status register
+  - address: "070"
+    device: CMOS RAM/RTC
+    description: "also NMI enable/disable (AT,PS/2)"
+  - address: "071"
+    device: CMOS RAM data
+    description: "(AT,PS/2)"
+  - range: 0A0-0BF
+    device: "Second 8259 Programmable Interrupt Controller (AT, PS/2)"
+    ports[2]{address,description}:
+      0A0,Second 8259 Command port
+      0A1,Second 8259 Interrupt mask register
+  - range: 170-17F
+    device: Fixed disk 1 (AT)
+    ports[8]{address,description}:
+      "170",disk 1 data
+      "171",disk 1 error
+      "172",disk 1 sector count
+      "173",disk 1 sector number
+      "174",disk 1 cylinder low
+      "175",disk 1 cylinder high
+      "176",disk 1 drive/head
+      "177",disk 1 status
+  - range: 1F0-1FF
+    device: Fixed disk 0 (AT)
+    ports[8]{address,description}:
+      1F0,disk 0 data
+      1F1,disk 0 error
+      1F2,disk 0 sector count
+      1F3,disk 0 sector number
+      1F4,disk 0 cylinder low
+      1F5,disk 0 cylinder high
+      1F6,disk 0 drive/head
+      1F7,disk 0 status
+  - range: 200-20F
+    device: Game Adapter
+  - range: 278-27F
+    device: Third parallel port (LPT3)
+  - range: 2E8-2EF
+    device: COM4
+  - range: 2F8-2FF
+    device: COM2
+  - range: 320-32F
+    device: Hard Disk Controller (XT)
+  - range: 378-37F
+    device: Second Parallel Printer (LPT2)
+  - range: 3B0-3BF
+    device: Monochrome Display Adapter
+  - range: 3BC-3BF
+    device: Primary Parallel Printer Adapter (LPT1)
+  - range: 3C0-3CF
+    device: EGA/VGA
+  - range: 3D0-3DF
+    device: Color Graphics Monitor Adapter
+  - range: 3E8-3EF
+    device: COM3
+  - range: 3F0-3F7
+    device: Floppy disk controller
+  - range: 3F8-3FF
+    device: COM1

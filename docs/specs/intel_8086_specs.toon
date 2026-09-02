@@ -1,0 +1,256 @@
+intel_8086_specifications:
+  general_info:
+    part_number: "8086"
+    manufacturer: Intel
+    architecture: 16-bit
+    package: 40-pin DIP
+    technology: HMOS
+    max_clock_frequency: 10 MHz
+    address_bus_width: 20 bits
+    data_bus_width: 16 bits
+    memory_addressing: 1MB (2^20 bytes)
+    register_width: "16-bit general purpose, 8-bit AH/AL, BH/BL, CH/CL, DH/DL"
+  pin_configuration:
+    address_data_bus:
+      "AD0-AD15":
+        pins[16]: 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+        type: multiplexed_address_data
+        function: Bidirectional address/data bus
+      "A16-A19":
+        pins[4]: 38,39,34,35
+        type: address_only
+        function: Upper 4 address bits
+    control_signals:
+      ALE:
+        pin: 25
+        function: Address Latch Enable
+        active: high
+        description: Used to demultiplex address/data bus
+      RD:
+        pin: 32
+        function: Read Control
+        active: low
+        description: Indicates read operation
+      WR:
+        pin: 29
+        function: Write Control
+        active: low
+        description: Indicates write operation
+      M_IO:
+        pin: 28
+        function: Memory/IO Select
+        states:
+          high: Memory operation
+          low: I/O operation
+      BHE:
+        pin: 34
+        function: Bus High Enable
+        active: low
+        description: Enables upper byte of data bus
+      INTR:
+        pin: 18
+        function: Interrupt Request
+        active: high
+        description: Maskable interrupt input
+      INTA:
+        pin: 24
+        function: Interrupt Acknowledge
+        active: low
+        description: CPU acknowledges interrupt
+      NMI:
+        pin: 17
+        function: Non-Maskable Interrupt
+        active: rising_edge
+        description: Non-maskable interrupt input
+      RESET:
+        pin: 21
+        function: System Reset
+        active: high
+        description: Resets CPU to initial state
+      READY:
+        pin: 22
+        function: Ready Input
+        active: high
+        description: Indicates memory/device ready for transfer
+      TEST:
+        pin: 23
+        function: Test Input
+        active: low
+        description: Used with WAIT instruction
+      CLK:
+        pin: 19
+        function: Clock Input
+        description: System clock signal
+    power_pins:
+      VCC:
+        pin: 40
+        voltage: +5V ±10%
+        description: Power supply
+      GND:
+        pins[2]: 1,20
+        description: Ground connections
+    status_pins:
+      "S0-S7":
+        pins[8]: 26,27,28,29,30,31,32,33
+        function: Status outputs
+        description: Indicate CPU operation type and status
+  timing_parameters:
+    clock:
+      frequency_ranges:
+        "8086": "5, 8, 10 MHz"
+        "8086-2": 8 MHz
+        "8086-1": 10 MHz
+      duty_cycle: 33%
+      min_high_time: TCLCL * 0.4
+      min_low_time: TCLCL * 0.4
+    bus_timing:
+      address_valid_delay:
+        min: TCLCL - 60ns
+        max: TCLCL + 20ns
+      data_valid_delay:
+        min: TCLCL - 60ns
+        max: TCLCL + 20ns
+      setup_time:
+        address_setup: TCLCL - 110ns
+        data_setup: 30ns
+      hold_time:
+        address_hold: 10ns
+        data_hold: 10ns
+      ALE_width:
+        min: TCLCL - 100ns
+        max: TCLCL + 40ns
+    read_cycle:
+      min_total_time: 4 * TCLCL
+      RD_active_width: 2 * TCLCL
+      data_access_time: TCLCL + 60ns
+    write_cycle:
+      min_total_time: 4 * TCLCL
+      WR_active_width: 2 * TCLCL
+      data_valid_time: TCLCL + 40ns
+  electrical_characteristics:
+    vcc_voltage:
+      nominal: +5.0V
+      min: +4.5V
+      max: +5.5V
+    current_consumption:
+      typical: 340mA @ 5MHz
+      max: 500mA @ 10MHz
+    input_levels:
+      vih:
+        min: +2.0V
+        description: High-level input voltage
+      vil:
+        max: +0.8V
+        description: Low-level input voltage
+    output_levels:
+      voh:
+        min: +2.4V
+        description: High-level output voltage at I_oh = -400μA
+      vol:
+        max: +0.45V
+        description: Low-level output voltage at I_ol = 2mA
+    capacitance:
+      input_capacitance: 10pF typical
+      output_capacitance: 20pF typical
+  registers:
+    general_purpose:
+      AX:
+        high: AH
+        low: AL
+        description: Accumulator register
+      BX:
+        high: BH
+        low: BL
+        description: Base register
+      CX:
+        high: CH
+        low: CL
+        description: Count register
+      DX:
+        high: DH
+        low: DL
+        description: Data register
+      SP:
+        description: Stack Pointer
+      BP:
+        description: Base Pointer
+      SI:
+        description: Source Index
+      DI:
+        description: Destination Index
+    segment_registers:
+      CS: Code Segment
+      DS: Data Segment
+      ES: Extra Segment
+      SS: Stack Segment
+    pointer_and_status:
+      IP: Instruction Pointer
+      FLAGS:
+        bits:
+          CF: Carry Flag
+          PF: Parity Flag
+          AF: Auxiliary Carry Flag
+          ZF: Zero Flag
+          SF: Sign Flag
+          TF: Trap Flag
+          IF: Interrupt Flag
+          DF: Direction Flag
+          OF: Overflow Flag
+  interrupt_system:
+    types:
+      intr:
+        maskable: true
+        level_sensitive: true
+        vector_base: 0x08
+      nmi:
+        maskable: false
+        edge_sensitive: true
+        vector: 0x02
+      software:
+        int_n:
+          range: 0-255
+          vector: n * 4
+    interrupt_vector_table:
+      base_address: 0x00000
+      entry_size: "4 bytes (2 bytes offset, 2 bytes segment)"
+      total_entries: "256"
+  memory_organization:
+    address_space: 1MB (0x00000 - 0xFFFFF)
+    segmentation:
+      segment_register_shift: 4
+      physical_address_calculation: segment * 16 + offset
+      overlap: Multiple logical addresses can map to same physical address
+    special_memory_areas:
+      reset_vector: 0xFFFF0
+      interrupt_vector_table: 0x00000 - 0x003FF
+      bios_area: 0xF0000 - 0xFFFFF
+  bus_states:
+    ti: Idle state - no bus activity
+    t1: Address output and ALE activation
+    t2: Data transfer (read) or data output (write)
+    t3: Data validation and READY sampling
+    tw: Wait states inserted when READY is low
+    t4: Bus cycle completion
+  reset_behavior:
+    reset_requirements:
+      min_pulse_width: 4 clock cycles
+      activation: high level
+    post_reset_state:
+      CS: 0xFFFF
+      IP: 0x0000
+      DS: 0x0000
+      ES: 0x0000
+      SS: 0x0000
+      FLAGS: 0xF000
+      queue: empty
+      first_execution_address: 0xFFFF0
+  performance_characteristics:
+    mips:
+      "5mhz": 0.33 MIPS
+      "8mhz": 0.53 MIPS
+      "10mhz": 0.66 MIPS
+    bus_cycles:
+      memory_read: 4 clock cycles
+      memory_write: 4 clock cycles
+      io_read: 5 clock cycles
+      io_write: 5 clock cycles

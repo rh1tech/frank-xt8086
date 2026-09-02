@@ -1,0 +1,136 @@
+name: UART - Universal Asynchronous Receiver/Transmitter
+aliases[3]: "8250","16450","16550"
+description: Standard serial communication interface.
+ports[8]{address,name,access}:
+  3F8/2F8,Transmit/Receive Buffer / Baud Rate Divisor LSB,read/write
+  3F9/2F9,Interrupt Enable Register (IER) / Baud Rate Divisor MSB,read/write
+  3FA/2FA,Interrupt Identification Register (IIR) / FIFO Control Register (FCR),read-only/write-only
+  3FB/2FB,Line Control Register (LCR),read/write
+  3FC/2FC,Modem Control Register (MCR),read/write
+  3FD/2FD,Line Status Register (LSR),read-only
+  3FE/2FE,Modem Status Register (MSR),read-only
+  3FF/2FF,Scratch Pad Register,read/write
+registers[7]:
+  - name: Interrupt Enable Register (IER)
+    address: 3F9/2F9
+    bits[5]{bit,description}:
+      0,1 = enable data available int (and 16550 Timeout)
+      1,1 = enable THRE interrupt
+      2,1 = enable lines status interrupt
+      3,1 = enable modem-status-change interrupt
+      4-7,reserved (zero)
+  - name: Interrupt Identification Register (IIR)
+    address: 3FA/2FA
+    access: read-only
+    bits[5]:
+      - bit: 0
+        description: "1 = no int. pending, 0=int. pending"
+      - bit: 1-2
+        name: Interrupt ID
+        values[4]{bits,meaning,priority,reset_by}:
+          "00",modem-status-change,lowest,read MSR
+          "01",transmit-register-empty,low,read IIR / write THR
+          "10",data-available,high,read rec buffer reg
+          "11",line-status,highest,read LSR
+      - bit: 3
+        description: "16550: 1 = timeout int. pending, 0 for 8250/16450"
+      - bit: 4-5
+        description: reserved (zero)
+      - bit: 6-7
+        description: "16550: set to 1 if FIFO queues are enabled"
+  - name: FIFO Control Register (FCR)
+    address: 3FA/2FA
+    access: write-only
+    model: "16550"
+    bits[6]:
+      - bit: 0
+        description: 1 = enable clear XMIT and RCVR FIFO queues
+      - bit: 1
+        description: 1 = clear RCVR FIFO
+      - bit: 2
+        description: 1 = clear XMIT FIFO
+      - bit: 3
+        description: 1 = change RXRDY & TXRDY pins from mode 0 to mode 1
+      - bit: 4-5
+        description: reserved (zero)
+      - bit: 6-7
+        name: RCVR FIFO Trigger Level
+        values:
+          "10": 8 bytes
+          "11": 14 bytes
+          "00": 1 byte
+          "01": 4 bytes
+  - name: Line Control Register (LCR)
+    address: 3FB/2FB
+    bits[7]:
+      - bit: 0-1
+        name: Word length select
+        values:
+          "10": 7 bits
+          "11": 8 bits
+          "00": 5 bits
+          "01": 6 bits
+      - bit: 2
+        description: "Stop bits: 0 = 1 stop bit, 1 = 1.5 or 2"
+      - bit: 3
+        description: "Parity Enable (PEN): 0 = no parity, 1 = parity"
+      - bit: 4
+        description: "Even Parity Select (EPS): 0 = odd parity, 1 = even"
+      - bit: 5
+        description: "Stick Parity: 0 = parity disabled, 1 = enabled"
+      - bit: 6
+        description: "Set Break: 0 = turn break off, 1 = force spacing break state"
+      - bit: 7
+        description: "Divisor Latch Access Bit (DLAB): 1 = access baud rate divisor, 0 = access RBR, THR, IER"
+  - name: Modem Control Register (MCR)
+    address: 3FC/2FC
+    bits[6]{bit,description}:
+      0,1 = activate DTR
+      1,1 = activate RTS
+      2,OUT1
+      3,OUT2
+      4,"Loopback test: 0 = normal, 1 = loop back"
+      5-7,reserved (zero)
+  - name: Line Status Register (LSR)
+    address: 3FD/2FD
+    access: read-only
+    bits[8]{bit,description}:
+      0,Data Ready (DR)
+      1,Overrun Error (OE)
+      2,Parity Error (PE)
+      3,Framing Error (FE)
+      4,Break Interrupt (BI)
+      5,Transmitter Holding Register Empty (THRE)
+      6,Transmitter Shift Register Empty (TSRE)
+      7,"16550: PE/FE/Break in FIFO queue"
+  - name: Modem Status Register (MSR)
+    address: 3FE/2FE
+    access: read-only
+    bits[8]{bit,description}:
+      0,Delta Clear to Send (DCTS)
+      1,Delta Data Set Ready (DDSR)
+      2,Trailing Edge of Ring Indicator (TERI)
+      3,Delta Data Carrier Detect (DDCD)
+      4,Clear to Send (CTS)
+      5,Data Set Ready (DSR)
+      6,Ring Indicator (RI)
+      7,Receive Line Signal Detect (RLSD) / Carrier Detect (CD)
+baud_rate_divisor_table:
+  formula: divisor = 1843200 / (BaudRate * 16)
+  rates:
+    "50": 900h
+    "110": 417h
+    "150": 300h
+    "300": 180h
+    "600": C0h
+    "1200": 60h
+    "1800": 40h
+    "2000": 3Ah
+    "2400": 30h
+    "3600": 20h
+    "4800": 18h
+    "7200": 10h
+    "9600": 0Ch
+    "19200": 06h
+    "38400": 03h
+    "115200": 01h

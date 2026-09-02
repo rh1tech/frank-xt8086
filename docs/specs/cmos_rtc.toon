@@ -1,0 +1,158 @@
+name: CMOS Real-Time Clock and Memory
+aliases[3]: RTC,CMOS RAM,CMOS clock
+description: Real-time clock and non-volatile memory (Motorola MC146818) for AT and PS/2 systems.
+ports[2]{address,description}:
+  70h,CMOS address register and NMI enable/disable.
+  71h,CMOS data register.
+registers[35]:
+  - register: "00"
+    description: RTC seconds
+  - register: "01"
+    description: RTC seconds alarm
+  - register: "02"
+    description: RTC minutes
+  - register: "03"
+    description: RTC minutes alarm
+  - register: "04"
+    description: RTC hours
+  - register: "05"
+    description: RTC hours alarm
+  - register: "06"
+    description: RTC day of week
+  - register: "07"
+    description: RTC day of month
+  - register: "08"
+    description: RTC month
+  - register: "09"
+    description: RTC year
+  - register: 0A
+    name: RTC Status register A
+    bits[3]{bit,name,description}:
+      0-3,Rate Selection,"Rate selection Bits for divider output frequency (set to 0110 = 1.024kHz, 976.562us)"
+      4-6,Divider,"22 stage divider, time base being used (initialized to 010 = 32.768kHz)"
+      7,Update in Progress,"1=time update in progress, 0=time/date available"
+  - register: 0B
+    name: RTC Status register B
+    bits[8]{bit,description}:
+      0,"1=disable clock update, 0=update count normally"
+      1,"1=enable periodic interrupt, 0=disable"
+      2,"1=enable alarm interrupt, 0=disable"
+      3,"1=enable update ended interrupt, 0=disable"
+      4,"1=enable square wave frequency, 0=disable"
+      5,"1=time/date in binary, 0=BCD (BCD default)"
+      6,"1=24 hour mode, 0=12 hour mode (24 default)"
+      7,"1=enable daylight savings, 0=disable (default)"
+  - register: 0C
+    name: RTC Status register C
+    access: read-only
+    bits[5]{bit,description}:
+      0-3,reserved (set to 0)
+      4,periodic interrupt enabled
+      5,alarm interrupt enabled
+      6,update ended interrupt enabled
+      7,IRQF flag
+  - register: 0D
+    name: RTC Status register D
+    access: read-only
+    bits[2]{bit,description}:
+      0-6,reserved (set to 0)
+      7,"1=CMOS RAM has power, 0=CMOS RAM has lost power"
+  - register: 0E
+    name: Diagnostic status byte
+    bits[7]{bit,description}:
+      0,"1=RTC lost power, 0=power state stable"
+      1,"1=config record checksum is bad, 0=ok"
+      2,"1=invalid config info found, 0=ok"
+      3,"1=memory size doesn't match config info, 0=ok"
+      4,"1=fixed disk 0 failed initialization, 0=ok"
+      5,"1=time is invalid, 0=ok (POST validity check)"
+      6-7,reserved
+  - register: 0F
+    name: Shutdown status byte
+    values:
+      "0": soft reset or unexpected shutdown
+      "1": shut down after memory size determination
+      "2": shut down after memory test
+      "3": shut down with memory error
+      "4": shut down with boot loader request
+      "5": JMP DWORD request with INT init
+      "6": protected mode test 7 passed
+      "7": protected mode test 7 failed
+      "8": protected mode test1 failed
+      "9": block move shutdown request
+      A: JMP DWORD request without INT init
+  - register: "10"
+    name: Diskette drive type
+    bits[2]:
+      - bit: 0-3
+        name: First diskette type
+        values:
+          "0000": no drive
+          "0001": DSDD 48 TPI
+          "0010": DSQD 96 TPI
+      - bit: 4-7
+        name: Second diskette type
+        values:
+          "0000": no drive
+          "0001": DSDD 48 TPI
+          "0010": DSQD 96 TPI
+  - register: "11"
+    description: Reserved
+  - register: "12"
+    name: Fixed disk drive type
+    bits[2]{bit,name,description}:
+      0-3,First hard disk drive code,0000=no disk
+      4-7,Second hard disk drive code,0000=no disk
+  - register: "13"
+    description: Reserved
+  - register: "14"
+    name: Equipment byte
+    bits[5]:
+      - bit: 0
+        description: "1=diskette drives installed, 0=none"
+      - bit: 1
+        description: "1=math coprocessor installed, 0=none"
+      - bit: 2-3
+        description: unused
+      - bit: 4-5
+        name: Primary Display
+        values:
+          "10": 80 column color
+          "11": monochrome
+          "01": 40 column color
+      - bit: 6-7
+        name: Number of diskette drives
+        values:
+          "00": 1 drive
+          "01": 2 drives
+  - register: "15"
+    description: LSB of system base memory in 1k blocks
+  - register: "16"
+    description: MSB of system base memory in 1k blocks
+  - register: "17"
+    description: LSB of total extended memory in 1k blocks
+  - register: "18"
+    description: MSB of total extended memory in 1k blocks
+  - register: "19"
+    description: Drive C extension byte (reserved AT)
+  - register: 1A
+    description: Drive D extension byte (reserved AT)
+  - register: 1B-2D
+    description: Reserved
+  - register: 2E
+    description: CMOS checksum of bytes 10h-20h (MSB)
+  - register: 2F
+    description: CMOS checksum of bytes 10h-20h (LSB)
+  - register: "30"
+    description: LSB of extended memory size found above 1 megabyte during POST
+  - register: "31"
+    description: MSB of extended memory size found above 1 megabyte during POST
+  - register: "32"
+    description: Date century byte in BCD
+  - register: "33"
+    name: Information flags
+    bits[2]{bit,description}:
+      6,initial setup message flag
+      7,"1=IBM 128k expansion installed, 0=none"
+  - register: 34-3F
+    description: Reserved

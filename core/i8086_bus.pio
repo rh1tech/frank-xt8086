@@ -1,0 +1,136 @@
+.program i8086_bus
+.side_set 1 opt
+
+; ============================================================================
+; Контроллер шины i8086 в minimal mode
+; - 16-битная шина данных (AD0-AD15)
+; - 20-битная адресация (AD0-AD15 + A16-A19)
+; - Обработка циклов RD/WR/INTA
+; - Управление READY для wait states через SIDESET
+; ============================================================================
+
+; GPIO assignments.
+;
+; A PIO program cannot include a C header, so these are a second copy of
+; the pin map in core/xt8086.h and have to be kept in step with it by
+; hand. The board's schematic is the authority for both; see docs/pinout.md.
+.define public AD_BUS_PINS       0  ; Начало шины AD0-AD15. out_base
+
+.define ALE_PIN                  20 ; Address Latch Enable
+.define RD_PIN                   21 ; Read strobe (активный LOW)
+.define WR_PIN                   22 ; Write strobe (активный LOW)
+.define INTA_PIN                 23 ; INTA strome (активный LOW)
+.define MIO_PIN                  24 ; Memory/IO select (1=память, 0=I/O) - захватывается но не проверяется в PIO
+.define BHE_PIN                  25 ; Bus High Enable - захватывается но не проверяется в PIO
+
+.define INTR_PIN                 26 ; INTR. Не используется в PIO
+
+.define public READY_PIN         27 ; Устанавливается через sideset sideset = READY_PIN (1=готов, 0=ждать)
+
+.define RESET_PIN                28 ; RESET. Не используется в PIO
+.define CLOCK_PIN                29 ; CLOCK. Не изспользуется в PIO.
+
+.wrap_target
+wait_ALE:
+    wait 1 gpio ALE_PIN             ; Ждать начала цикла шины (T1: ALE=HIGH)
+capture_address:
+    wait 0 gpio ALE_PIN      ; Дождаться начала T2 (ALE=LOW) и поднять READY=0 (wait state)
+    in pins, 26                     ; Захватить GPIO 0-25 (адрес + управляющие сигналы)
+                                    ; ISR[25:0] = AD0-AD15, A16-A19, ALE, RD, WR, INTA, MIO, BHE
+
+                                    ; CPU семплирует READY в конце T2 и увидит wait state
+
+
+    push                            ; Отправить в FIFO для обработки ARM
+
+;================================================================
+; Определить тип цикла (WR, RD или INTA) проверкой GPIO 21/22/23
+;================================================================
+wait_strobe:
+    mov osr, pins                   ; Прочитать GPIO
+    out null, 21                    ; Выбросить GPIO 0-20
+
+    out x, 1                        ; X = GPIO 21 (RD)
+    jmp !x RD_cycle                 ; Если RD=0
+
+    out x, 1                        ; X = GPIO 22 (WR)
+    jmp !x WR_cycle                 ; Если WR=0
+
+    out x, 1                        ; X = GPIO 23 (INTA)
+    jmp !x INTA_cycle               ; Если INTA=0
+
+    jmp wait_strobe                 ; Polling
+
+; ============================================================================
+; Цикл записи: CPU записывает данные в память/IO
+; ============================================================================
+WR_cycle:
+    nop side 0
+    in pins, 16                     ; Захватить данные с AD0-AD15
+    push                            ; Отправить данные ARM
+    irq 0                   side 1  ; Прерывание записи. READY=1 (продолжить)
+    wait 1 gpio WR_PIN              ; Дождаться WR=HIGH (конец цикла)
+    jmp wait_ALE                    ; Следующий цикл
+
+INTA_cycle:
+    wait 1 gpio INTA_PIN            ; Ждем ВЫСОКИЙ INTA
+        irq 3                     ; Прерывания INTA. READY=1 продолжаем
+    wait 0 gpio INTA_PIN      ; Ждем низкий INTA для входа во второй цикл INTA. READY=0 ждать
+                                    ; А дальше проваливаемся в RD_cycle, адресная линия нам не интересна
+
+; ============================================================================
+; Цикл чтения: CPU читает данные из памяти/IO
+; ============================================================================
+RD_cycle:
+    nop side 0
+    irq 1                           ; Прерывание чтения
+    pull block                      ; Получить ответ: [data:16][mask:16]
+    out pindirs, 16                 ; Применить маску (0x0000=входы, 0xFFFF=выходы), позволяет в будущем иметь реальные устройства на ISA шине [почти] без конфликта. Надо будет только решить вопрос с READY
+
+    out pins, 16                    ; Выдать данные на AD0-AD15. READY=1 продолжаем
+    nop side 1
+    wait 1 gpio INTA_PIN            ; Ждем ВЫСОКИЙ INTA.
+    wait 1 gpio RD_PIN              ; Дождаться RD=HIGH (конец цикла чтения)
+
+                                    ; В случае, если это был обычный цикл чтения он всегда будет в этот момент ВЫСОКИМ, а если это был цилк INTA то дождемся его завершения
+cleanup:
+    mov osr, null                   ; Заполнить OSR нулями
+    out pindirs, 16                 ; Вернуть AD0-AD15 в режим входов (Z-состояние)
+.wrap
+
+
+% c-sdk {
+
+void i8086_bus_program_init(PIO pio, uint sm, uint offset)
+{
+    pio_sm_config cfg = i8086_bus_program_get_default_config(offset);
+
+    // Настройка направления сдвигов
+    sm_config_set_in_shift(&cfg, false, false, 32);          // IN: сдвиг влево, без autopush
+    sm_config_set_out_shift(&cfg, true, false, 32);          // OUT: сдвиг вправо, без autopull
+
+    // Назначение пинов
+    sm_config_set_in_pins(&cfg, i8086_bus_AD_BUS_PINS);      // IN base = GPIO 0
+    sm_config_set_out_pins(&cfg, i8086_bus_AD_BUS_PINS, 16); // OUT base = GPIO 0, 16 пинов
+    sm_config_set_sideset_pins(&cfg, i8086_bus_READY_PIN);   // SIDESET = GPIO 27
+
+    // Инициализация GPIO для управления через PIO
+    // AD0-AD15: двунаправленная шина данных (стартуют как входы)
+    for (int i = 0; i < 26; i++) {
+        pio_gpio_init(pio, i8086_bus_AD_BUS_PINS + i);
+    }
+
+    // READY: выход (управляется PIO)
+    pio_gpio_init(pio, i8086_bus_READY_PIN);
+
+    // Установка направлений пинов
+    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_AD_BUS_PINS, 25, false);  // AD0-AD15: входы
+    pio_sm_set_consecutive_pindirs(pio, sm, i8086_bus_READY_PIN, 1, true);      // READY: выход
+
+    // Установить READY=HIGH до старта
+    gpio_put(i8086_bus_READY_PIN, true);
+
+    // Инициализировать и запустить state machine
+    pio_sm_init(pio, sm, offset, &cfg);
+}
+%}

@@ -1,0 +1,233 @@
+intel_8259a_specifications:
+  general_info:
+    part_number: 8259A
+    manufacturer: Intel
+    device_type: Programmable Interrupt Controller
+    package: 28-pin DIP
+    technology: NMOS
+    interrupt_levels: 8 priority levels
+    cascade_capability: up to 64 levels (8 devices)
+    power_supply: +5V
+  pin_configuration:
+    data_bus:
+      "D0-D7":
+        pins[8]: 4,5,6,7,8,9,10,11
+        type: bidirectional
+        function: 8-bit data bus connection to system bus
+    address_pins:
+      A0:
+        pin: 27
+        function: Address input 0
+        description: Selects between command/status (0) and data (1) registers
+      CS:
+        pin: 1
+        function: Chip Select
+        active: low
+        description: Enables the 8259A for read/write operations
+    control_pins:
+      RD:
+        pin: 3
+        function: Read Control
+        active: low
+        description: Enables data transfer from 8259A to CPU
+      WR:
+        pin: 2
+        function: Write Control
+        active: low
+        description: Enables data transfer from CPU to 8259A
+      INT:
+        pin: 17
+        function: Interrupt Output
+        active: high
+        description: Interrupt request sent to CPU
+      INTA:
+        pin: 26
+        function: Interrupt Acknowledge
+        active: low
+        description: CPU acknowledges interrupt
+    interrupt_inputs:
+      "IR0-IR7":
+        pins[8]: 18,19,20,21,22,23,24,25
+        type: input
+        function: Interrupt request inputs
+        priority: "IR0 highest, IR7 lowest"
+    cascade_pins:
+      "CAS0-CAS2":
+        pins[3]: 12,13,14
+        type: bidirectional
+        function: Cascade lines for multi-8259A systems
+      SP:
+        pin: 16
+        function: Slave/Program Pin
+        description: "Master=1, Slave=0"
+    power_pins:
+      VCC:
+        pin: 28
+        voltage: +5V
+      GND:
+        pin: 15
+        description: Ground
+  register_map:
+    address_a0_0:
+      read_operations:
+        IRR:
+          name: Interrupt Request Register
+          description: Reads pending interrupt status
+          bits:
+            bit_0_7: IR0-IR7 pending interrupt status
+        ISR:
+          name: In-Service Register
+          description: Reads in-service interrupt status (OCW3 polling command)
+          bits:
+            bit_0_7: IR0-IR7 in-service status
+      write_operations:
+        ICW1:
+          name: Initialization Command Word 1
+          description: First initialization command
+          bits:
+            bit_0: "IC4=1: ICW4 needed, IC4=0: no ICW4"
+            bit_1: "SNGL=1: single mode, SNGL=0: cascade mode"
+            bit_2: "ADI=0: call address interval 4, ADI=1: interval 8"
+            bit_3: "LTIM=0: edge triggered, LTIM=1: level triggered"
+            bit_4: Always 1 (ICW1 identifier)
+            "bit_5-7": Always 0
+        OCW2:
+          name: Operation Command Word 2
+          description: Controls priority rotation and end of interrupt
+          bits:
+            "bit_0-2": Interrupt level (L0-L2)
+            bit_3: "SL=1: specific level, SL=0: rotate on EOI"
+            bit_4: "EOI=1: end of interrupt command"
+            bit_5: "R=1: rotate priority, R=0: no rotation"
+            "bit_6-7": Always 0
+        OCW3:
+          name: Operation Command Word 3
+          description: Controls special mask and polling modes
+          bits:
+            bit_0: "RIS=1: read ISR, RIS=0: read IRR"
+            bit_1: "RR=1: read register command"
+            bit_2: "P=1: poll command"
+            bit_3: "ESMM=1: enable special mask mode"
+            bit_4: "SMM=1: special mask mode (if ESMM=1)"
+            "bit_5-7": Always 0
+    address_a0_1:
+      read_operations:
+        IMR:
+          name: Interrupt Mask Register
+          description: Reads interrupt mask status
+          bits:
+            bit_0_7: "IR0-IR7 mask (1=masked, 0=enabled)"
+      write_operations:
+        ICW2:
+          name: Initialization Command Word 2
+          description: Sets interrupt vector base address
+          bits:
+            "bit_0-2": Always 0
+            "bit_3-7": Upper 5 bits of interrupt vector base
+        ICW3:
+          name: Initialization Command Word 3
+          description: Cascade configuration
+          master_mode:
+            bits:
+              "bit_0-7": "Slave presence (1=slave connected, 0=no slave)"
+          slave_mode:
+            bits:
+              "bit_0-2": Slave identification code (0-7)
+              "bit_3-7": Always 0
+        ICW4:
+          name: Initialization Command Word 4
+          description: Additional mode settings
+          bits:
+            bit_0: "uPM=1: 8086/8088 mode, uPM=0: 8080/8085 mode"
+            bit_1: "AEOI=1: auto EOI, AEOI=0: normal EOI"
+            bit_2: "M/S=1: master, M/S=0: slave (only in buffered mode)"
+            bit_3: "BUF=1: buffered mode, BUF=0: non-buffered mode"
+            bit_4: "SFNM=1: special fully nested mode, SFNM=0: fully nested mode"
+            "bit_5-7": Always 0
+        OCW1:
+          name: Operation Command Word 1
+          description: Interrupt mask register
+          bits:
+            bit_0_7: "IR0-IR7 mask bits (1=masked, 0=enabled)"
+  priority_modes:
+    fully_nested:
+      description: Default mode
+      behavior: "IR0 highest, IR7 lowest priority, in-service interrupts block lower priorities"
+    automatic_rotation:
+      description: Priority rotates after each EOI
+      behavior: Serviced interrupt moves to lowest priority
+    specific_rotation:
+      description: Programmable rotation via OCW2
+      behavior: Specific level can be set to lowest priority
+    special_fully_nested:
+      description: For master in cascade mode
+      behavior: Allows same-level interrupts from different slaves
+  interrupt_sequence:
+    steps[8]: One or more IR lines go active,8259A evaluates priority and sends INT to CPU,CPU acknowledges with INTA pulse 1,8259A places call address instruction on bus,CPU sends INTA pulse 2,8259A places interrupt vector on bus,CPU jumps to interrupt service routine,EOI command issued (auto or manual)
+  cascade_operation:
+    master_slave_communication:
+      cascade_lines: CAS0-CAS2
+      identification: 3-bit slave ID during INTA cycle
+      max_levels: 64 levels (8 masters/slaves)
+    special_fully_nested_mode:
+      purpose: Allow interrupts from same priority level
+      condition: Only in cascade mode
+      behavior: Master doesn't block same-level slave interrupts
+  trigger_modes:
+    edge_triggered:
+      description: Interrupt on rising edge
+      setup: LTIM=0 in ICW1
+      behavior: IR line must go low before next interrupt
+    level_triggered:
+      description: Interrupt on high level
+      setup: LTIM=1 in ICW1
+      behavior: Interrupt remains active while IR line is high
+  special_modes:
+    poll_mode:
+      description: Polling instead of interrupt
+      activation: P=1 in OCW3
+      behavior: Read status word instead of INT signal
+    special_mask_mode:
+      description: Allows lower priority interrupts during higher priority service
+      activation: SMM=1 in OCW3
+      behavior: IMR can be modified to enable lower priority interrupts
+    buffered_mode:
+      description: Use bus buffers
+      activation: BUF=1 in ICW4
+      requirements: M/S bit must be set
+  timing_parameters:
+    interrupt_request:
+      setup_time: 30ns minimum
+      hold_time: 30ns minimum
+    inta_acknowledge:
+      inta1_width: 2 clock cycles minimum
+      inta2_width: 2 clock cycles minimum
+    data_bus:
+      setup_time: 50ns minimum
+      hold_time: 10ns minimum
+  electrical_characteristics:
+    power_supply:
+      vcc: +5V ±10%
+      current_consumption: 15mA typical
+    input_levels:
+      vih: +2.0V minimum
+      vil: +0.8V maximum
+    output_levels:
+      voh: +2.4V minimum at -400μA
+      vol: +0.45V maximum at 2mA
+  initialization_sequence:
+    requirements:
+      icw1: "Always required (address A0=0, bit 4=1)"
+      icw2: Always required (address A0=1)
+      icw3: Required in cascade mode (SNGL=0)
+      icw4: Required if IC4=1 in ICW1
+    programming_order: ICW1 → ICW2 → ICW3 (if needed) → ICW4 (if needed)
+  interrupt_vectors:
+    "8086_mode":
+      vector_size: 4 bytes (2 offset + 2 segment)
+      base_address: Set by ICW2 (bits 3-7)
+      individual_vectors: Base + interrupt level (0-7)
+    "8080_mode":
+      vector_size: 8 bytes
+      base_address: Set by ICW2
+      individual_vectors: Base + interrupt level × 8

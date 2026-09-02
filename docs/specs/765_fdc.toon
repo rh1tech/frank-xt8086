@@ -1,0 +1,166 @@
+name: NEC PD765 / Intel 8272A Floppy Disk Controller
+aliases[3]: FDC,NEC 765,8272A
+description: Floppy Disk Controller used in PC/XT/AT and PS/2 systems.
+registers[7]:
+  - address: 3F0h
+    name: PS/2 Disk Status Register A
+    access: read-only
+    system: PS/2
+    bits[8]{bit,description}:
+      0,direction
+      1,write protect
+      2,index
+      3,head 1 select
+      4,track 0
+      5,step
+      6,second drive installed
+      7,interrupt pending
+  - address: 3F1h
+    name: PS/2 Disk Status Register B
+    access: read-only
+    system: PS/2
+    bits[7]{bit,description}:
+      0,motor enable 0
+      1,motor enable 1
+      2,write enable
+      3,read data (toggles w/positive transition in -RD DATA)
+      4,write data (toggles w/positive transition in WR DATA)
+      5,drive select
+      6-7,reserved
+  - address: 3F2h
+    name: Digital Output Register (DOR)
+    access: write-only
+    system: all
+    bits[7]{bit,description}:
+      0-1,"floppy drive select (0=A, 1=B, 2=C, 3=D)"
+      2,"1 = FDC enable, 0 = hold FDC at reset"
+      3,1 = DMA & I/O interface enabled (reserved PS/2)
+      4,1 = turn floppy drive A motor on
+      5,1 = turn floppy drive B motor on
+      6,1 = turn floppy drive C motor on (reserved PS/2)
+      7,1 = turn floppy drive D motor on (reserved PS/2)
+    notes[4]: "Used to control drive motors, drive selection, and feature enable.",PS/2 only uses bit 0 for floppy drive select; bit 1 is reserved.,PS/2 only uses bits 5 & 4 for motor enable; bits 7&6 are reserved.,All DOR bits are cleared during controller reset.
+  - address: 3F4h
+    name: Main Status Register (MSR)
+    access: read-only
+    system: all
+    bits[8]{bit,description}:
+      0,floppy drive 0 in seek mode/busy
+      1,floppy drive 1 in seek mode/busy
+      2,floppy drive 2 in seek mode/busy (reserved PS/2)
+      3,floppy drive 3 in seek mode/busy (reserved PS/2)
+      4,FDC read or write command in progress
+      5,FDC is in non-DMA mode
+      6,I/O direction; 1 = FDC to CPU; 0 = CPU to FDC
+      7,data reg ready for I/O to/from CPU (request for master)
+  - address: 3F5h
+    name: Command/Status Registers
+    description: Access to multiple status registers (ST0-ST3) and command bytes.
+    status_registers[4]:
+      - name: Status Register 0 (ST0)
+        bits[6]:
+          - bit: 0-1
+            description: "unit selected at interrupt (0=A, 1=B, 2=...)"
+          - bit: 2
+            description: head number at interrupt (head 0 or 1)
+          - bit: 3
+            description: not ready on read/write or SS access to head 1
+          - bit: 4
+            description: equipment check
+          - bit: 5
+            description: set to 1 when FDD completes a seek command
+          - bit: 6-7
+            description: last command status
+            values:
+              "10": invalid command issued
+              "11": command terminated abnormally due to a change in state of the Ready Signal
+              "00": command terminated successfully
+              "01": command execution started but terminated abnormally
+      - name: Status Register 1 (ST1)
+        bits[8]{bit,description}:
+          0,FDC cannot find ID address mark
+          1,write protect detected during write
+          2,FDC cannot find sector ID
+          3,unused (always zero)
+          4,over-run; FDC not serviced in reasonable time
+          5,data error (CRC) in ID field or data field
+          6,unused (always zero)
+          7,end of cylinder; sector# greater than sectors/track
+      - name: Status Register 2 (ST2)
+        bits[8]{bit,description}:
+          0,missing address mark in data field
+          1,"bad cylinder, ID not found and Cyl Id=FFh"
+          2,"scan command failed, sector not found in cylinder"
+          3,scan command equal condition satisfied
+          4,wrong cylinder detected
+          5,CRC error detected in sector data
+          6,sector with deleted data address mark detected
+          7,unused (always zero)
+      - name: Status Register 3 (ST3)
+        description: FDD status
+        bits[7]{bit,description}:
+          0-1,"FDD unit selected status (0=A, 1=B, 2=...)"
+          2,"FDD side head select status (0=head 0, 1=head 1)"
+          3,FDD two sided status signal
+          4,FDD track zero status signal
+          5,FDD ready status signal
+          6,FDD write protect status signal
+          7,FDD fault status signal
+  - address: 3F7h
+    name: Digital Input Register (DIR)
+    access: read-only
+    system: PS/2
+    bits[3]{bit,description}:
+      0,high density select
+      1-6,reserved
+      7,diskette change
+  - address: 3F7h
+    name: Configuration Control Register (CCR)
+    access: write-only
+    system: PS/2
+    bits[2]:
+      - bit: 0-1
+        name: "DRC1, DRC0"
+        description: Data Rate Control
+        values:
+          "10": 250000 bit per second mode
+          "11": reserved
+          "00": 500000 bit per second mode
+          "01": reserved
+      - bit: 2-7
+        description: reserved
+commands[17]:
+  - name: Read Data
+    code: "MT,MF,SK,0,0,1,1,0"
+  - name: Read Deleted Data
+    code: "MT,MF,SK,0,1,1,0,0"
+  - name: Write Data
+    code: "MT,MF,0,0,0,1,0,1"
+  - name: Write Deleted Data
+    code: "MT,MF,0,0,1,0,0,1"
+  - name: Read a Track (Diagnostic)
+    code: "0,MF,SK,0,0,0,1,0"
+  - name: Read ID
+    code: "0,MF,0,0,1,0,1,0"
+  - name: Format a Track
+    code: "0,MF,0,0,1,1,0,1"
+  - name: Scan Equal
+    code: "MT,MF,SK,1,0,0,0,1"
+  - name: Scan Low or Equal
+    code: "MT,MF,SK,1,1,0,0,1"
+  - name: Scan High or Equal
+    code: "MT,MF,SK,1,1,1,0,1"
+  - name: Recalibrate
+    code: "0,0,0,0,0,1,1,1"
+  - name: Sense Interrupt Status
+    code: "0,0,0,0,1,0,0,0"
+  - name: Specify Step & Head Load
+    code: "0,0,0,0,0,0,1,1"
+  - name: Sense Drive Status
+    code: "0,0,0,0,0,1,0,0"
+  - name: Seek
+    code: "0,0,0,0,1,1,1,1"
+  - name: Version
+    code: "?,?,?,1,0,0,0,0"
+  - name: Invalid Command
+    result: status register 0 (value of 80h)

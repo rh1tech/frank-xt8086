@@ -1,0 +1,224 @@
+name: Motorola 6845 CRT Controller
+aliases[1]: CRTC
+description: Motorola 6845 CRT Controller for Monochrome and Color Graphics Adapters.
+port_mappings[2]{adapter,base_address}:
+  Monochrome Monitor Adapter,0x3B0-0x3BB
+  Color Graphics Adapter,0x3D0-0x3DC
+ports[14]:
+  - address: 3B0/3D0
+    description: Decodes to 3B4/3D4.
+  - address: 3B1/3D1
+    description: Decodes to 3B5/3D5.
+  - address: 3B2/3D2
+    description: Decodes to 3B4/3D4.
+  - address: 3B3/3D3
+    description: Decodes to 3B5/3D5.
+  - address: 3B4/3D4
+    name: 6845 Index Register
+    description: Selects which register (0x00-0x11) is to be accessed through port 3B5/3D5.
+  - address: 3B5/3D5
+    name: 6845 Data Register
+    description: Accesses the 6845 data register (0x00-0x11) selected by port 3B4/3D4. Registers 0x0C-0x0F may be read. Returns 0xFF if adapter is not installed.
+  - address: 3B6/3D6
+    description: Decodes to 3B4/3D4.
+  - address: 3B7/3D7
+    description: Decodes to 3B5/3D5.
+  - address: 3B8/3D8
+    name: 6845 Mode Control Register
+  - address: 3B9/3D9
+    name: Color Select Register
+    description: On color adapter.
+  - address: 3BA/3DA
+    name: Status Register
+    access: read-only
+  - address: 3BB/3DB
+    name: Light Pen Strobe Reset
+  - address: 3DC
+    name: Preset Light Pen Latch
+  - address: 3DF
+    name: CRT/CPU Page Register
+    note: PCjr only
+registers:
+  description: "Accessed through ports 3B5 & 3D5. Registers 0x00-0x0D are write-only, 0x0E-0x0F are read/write, and 0x10-0x11 are read-only."
+  list[18]:
+    - id: "00"
+      name: Horiz. total characters
+      valid_values:
+        MONO: "61"
+        CO40: "38"
+        CO80: "71"
+        GRPH: "38"
+    - id: "01"
+      name: Horiz. displayed characters per line
+      valid_values:
+        MONO: "50"
+        CO40: "28"
+        CO80: "50"
+        GRPH: "28"
+    - id: "02"
+      name: Horiz. synch position
+      valid_values:
+        MONO: "52"
+        CO40: 2D
+        CO80: 5A
+        GRPH: 2D
+    - id: "03"
+      name: Horiz. synch width in characters
+      valid_values:
+        MONO: 0F
+        CO40: 0A
+        CO80: 0A
+        GRPH: 0A
+    - id: "04"
+      name: Vert. total lines
+      valid_values:
+        MONO: "19"
+        CO40: 1F
+        CO80: 1F
+        GRPH: 7F
+    - id: "05"
+      name: Vert. total adjust (scan lines)
+      valid_values:
+        MONO: "06"
+        CO40: "06"
+        CO80: "06"
+        GRPH: "06"
+    - id: "06"
+      name: Vert. displayed rows
+      valid_values:
+        MONO: "19"
+        CO40: "19"
+        CO80: "19"
+        GRPH: "64"
+    - id: "07"
+      name: Vert. synch position (character rows)
+      valid_values:
+        MONO: "19"
+        CO40: 1C
+        CO80: 1C
+        GRPH: "70"
+    - id: "08"
+      name: Interlace mode
+      valid_values:
+        MONO: "02"
+        CO40: "02"
+        CO80: "02"
+        GRPH: "02"
+    - id: "09"
+      name: Maximum scan line address
+      valid_values:
+        MONO: 0D
+        CO40: "07"
+        CO80: "07"
+        GRPH: "01"
+    - id: 0A
+      name: Cursor start (scan line)
+      valid_values:
+        MONO: 0B
+        CO40: "06"
+        CO80: "06"
+        GRPH: "06"
+    - id: 0B
+      name: Cursor end (scan line)
+      valid_values:
+        MONO: 0C
+        CO40: "07"
+        CO80: "07"
+        GRPH: "07"
+    - id: 0C
+      name: Start address (MSB)
+      valid_values:
+        MONO: "00"
+        CO40: "00"
+        CO80: "00"
+        GRPH: "00"
+    - id: 0D
+      name: Start address (LSB)
+      valid_values:
+        MONO: "00"
+        CO40: "00"
+        CO80: "00"
+        GRPH: "00"
+    - id: 0E
+      name: Cursor address (MSB)
+      access: read/write
+      valid_values:
+        MONO: "00"
+        CO40: "--"
+        CO80: "--"
+        GRPH: "--"
+    - id: 0F
+      name: Cursor address (LSB)
+      access: read/write
+      valid_values:
+        MONO: "00"
+        CO40: "--"
+        CO80: "--"
+        GRPH: "--"
+    - id: "10"
+      name: Light pen (MSB)
+      access: read-only
+      valid_values:
+        MONO: "--"
+        CO40: "--"
+        CO80: "--"
+        GRPH: "--"
+    - id: "11"
+      name: Light pen (LSB)
+      access: read-only
+      valid_values:
+        MONO: "--"
+        CO40: "--"
+        CO80: "--"
+        GRPH: "--"
+control_ports[5]:
+  - port: 3B8
+    name: CRT Control Port (Monochrome)
+    bits[8]{bit,description}:
+      0,1 = 80x25 text
+      1,unused
+      2,unused
+      3,1 = enable video signal
+      4,unused
+      5,1 = blinking on
+      6,unused
+      7,unused
+  - port: 3D8
+    name: Mode Select Register (Color)
+    bits[8]{bit,description}:
+      0,"1 = 80x25 text, 0 = 40x25 text"
+      1,"1 = 320x200 graphics, 0 = text"
+      2,"1 = B/W, 0 = color"
+      3,1 = enable video signal
+      4,1 = 640x200 B/W graphics
+      5,"1 = blink, 0 = no blink"
+      6,unused
+      7,unused
+  - port: 3D9
+    name: Color Select Register (Color Text Modes)
+    note: 3B9 not used
+    bits[4]{bit,description}:
+      0-2,screen/border RGB
+      3,select intensity setting
+      4,background intensity
+      5-7,unused
+  - port: 3D9
+    name: Color Select Register (Color Graphics Modes)
+    note: 3B9 not used
+    bits[5]{bit,description}:
+      0-2,RGB for background
+      3,intensity
+      4,unused
+      5,"1 = palette 1, 0 = palette 0"
+      6-7,unused
+    palettes:
+      "0": "green, red, brown"
+      "1": "cyan, magenta, white"
+  - port: 3DA
+    name: Status Register
+    bits[5]{bit,description}:
+      0,"1 = display enable, RAM access is OK"
+      1,1 = light pen trigger set
+      2,"0 = light pen on, 1 = light pen off"
+      3,"1 = vertical retrace, RAM access OK for next 1.25ms"
+      4-7,unused

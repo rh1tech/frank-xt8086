@@ -1,0 +1,265 @@
+intel_8253_specifications:
+  general_info:
+    part_number: "8253"
+    manufacturer: Intel
+    device_type: Programmable Interval Timer
+    package: 24-pin DIP
+    technology: NMOS
+    counter_count: 3 independent 16-bit counters
+    counter_modes: 6 operating modes
+    clock_input: TTL compatible
+    power_supply: +5V
+  pin_configuration:
+    data_bus:
+      "D0-D7":
+        pins[8]: 1,2,3,4,5,6,7,8
+        type: bidirectional
+        function: 8-bit data bus for programming and reading counters
+    address_pins:
+      A0:
+        pin: 19
+        function: Address input 0
+        description: Counter select bit 0
+      A1:
+        pin: 20
+        function: Address input 1
+        description: Counter select bit 1
+      CS:
+        pin: 21
+        function: Chip Select
+        active: low
+        description: Enables the 8253 for read/write operations
+    control_pins:
+      RD:
+        pin: 22
+        function: Read Control
+        active: low
+        description: Read counter value
+      WR:
+        pin: 23
+        function: Write Control
+        active: low
+        description: Write control word or counter value
+    counter_clock_inputs:
+      CLK0:
+        pin: 9
+        function: Clock input for Counter 0
+        frequency_range: DC to 2.6 MHz
+      CLK1:
+        pin: 15
+        function: Clock input for Counter 1
+        frequency_range: DC to 2.6 MHz
+      CLK2:
+        pin: 18
+        function: Clock input for Counter 2
+        frequency_range: DC to 2.6 MHz
+    counter_gate_inputs:
+      GATE0:
+        pin: 11
+        function: Gate input for Counter 0
+        description: Enable/disable counting and trigger operations
+      GATE1:
+        pin: 14
+        function: Gate input for Counter 1
+        description: Enable/disable counting and trigger operations
+      GATE2:
+        pin: 16
+        function: Gate input for Counter 2
+        description: Enable/disable counting and trigger operations
+    counter_outputs:
+      OUT0:
+        pin: 10
+        function: Output of Counter 0
+        description: Timer/counter output signal
+      OUT1:
+        pin: 13
+        function: Output of Counter 1
+        description: Timer/counter output signal
+      OUT2:
+        pin: 17
+        function: Output of Counter 2
+        description: Timer/counter output signal
+    power_pins:
+      VCC:
+        pin: 24
+        voltage: +5V
+      GND:
+        pin: 12
+        description: Ground
+  address_decoding:
+    A1_A0_combinations:
+      "10":
+        register: Counter 2
+        read: Read Counter 2 value
+        write: Write Counter 2 value
+      "11":
+        register: Control Word Register
+        read: Not allowed
+        write: Write control word
+      "00":
+        register: Counter 0
+        read: Read Counter 0 value
+        write: Write Counter 0 value
+      "01":
+        register: Counter 1
+        read: Read Counter 1 value
+        write: Write Counter 1 value
+  control_word_format:
+    bits:
+      "SC1-SC0":
+        positions[2]: bit_7,bit_6
+        function: Select Counter
+        values:
+          "10": Select Counter 2
+          "11": Read-back command (8254 only)
+          "00": Select Counter 0
+          "01": Select Counter 1
+      "RW1-RW0":
+        positions[2]: bit_5,bit_4
+        function: Read/Write Load
+        values:
+          "10": Read/Write most significant byte only
+          "11": Read/Write LSB then MSB (16-bit)
+          "00": Counter latch command
+          "01": Read/Write least significant byte only
+      "M2-M1-M0":
+        positions[3]: bit_3,bit_2,bit_1
+        function: Mode Selection
+        values:
+          "100": Mode 4 - Software triggered strobe
+          "101": Mode 5 - Hardware triggered strobe
+          "110": Mode 2 - Rate generator (same as 010)
+          "111": Mode 3 - Square wave generator (same as 011)
+          "000": Mode 0 - Interrupt on terminal count
+          "001": Mode 1 - Hardware retriggerable one-shot
+          "010": Mode 2 - Rate generator
+          "011": Mode 3 - Square wave generator
+      BCD:
+        position: bit_0
+        function: Binary/Coded Decimal
+        values:
+          "0": Binary counting (16-bit)
+          "1": BCD counting (4 decades)
+  operating_modes:
+    mode_0:
+      name: Interrupt on Terminal Count
+      description: "Count down to zero, output goes high"
+      timing:
+        initial_output: Low
+        terminal_output: High
+        gate_behavior: "Low disables counting, High enables counting"
+      operation: "Counting starts when gate goes high, output rises when count reaches zero"
+    mode_1:
+      name: Hardware Retriggerable One-Shot
+      description: Single pulse with programmable width
+      timing:
+        trigger: Rising edge on GATE
+        pulse_width: Count value clock periods
+        retriggerable: Yes
+      operation: Each GATE rising edge starts a single output pulse
+    mode_2:
+      name: Rate Generator
+      description: Divide-by-N counter with periodic output
+      timing:
+        output_pattern: "High for (N-1) cycles, Low for 1 cycle"
+        period: N clock cycles
+        gate_behavior: "Low forces output high, High enables counting"
+      operation: Generates periodic pulses at rate = input_clock / N
+    mode_3:
+      name: Square Wave Generator
+      description: 50% duty cycle square wave
+      timing:
+        even_N: "High for N/2 cycles, Low for N/2 cycles"
+        odd_N: "High for (N+1)/2 cycles, Low for (N-1)/2 cycles"
+        period: N clock cycles
+      operation: Generates symmetric square wave
+    mode_4:
+      name: Software Triggered Strobe
+      description: Single pulse after count loads
+      timing:
+        trigger: Software write to counter
+        pulse: Low for one clock cycle when count reaches zero
+      operation: Pulse occurs N cycles after counter is programmed
+    mode_5:
+      name: Hardware Triggered Strobe
+      description: Single pulse triggered by GATE
+      timing:
+        trigger: Rising edge on GATE
+        pulse: Low for one clock cycle when count reaches zero
+        retriggerable: Yes
+      operation: Pulse occurs N cycles after GATE rising edge
+  counter_characteristics:
+    count_range:
+      binary: 1 to 65535 (0 counts as 65536)
+      bcd: 1 to 9999 (0 counts as 10000)
+    counting_direction: Always down (decrement)
+    initial_value_loading:
+      "16_bit": "LSB first, then MSB"
+      "8_bit": Single byte write
+    reading_methods:
+      direct_read: Read counter value directly
+      counter_latch: Use RW=00 command to latch current count
+  programming_sequence:
+    steps[3]: Write control word to select counter and mode,Write initial count value (LSB then MSB for 16-bit),Counter starts counting based on mode and GATE input
+    initialization_order: Control word → Counter value
+  gate_signal_characteristics:
+    modes:
+      level_sensitive[3]: Mode 0,Mode 2,Mode 3
+      edge_sensitive[2]: Mode 1,Mode 5
+      software_triggered[1]: Mode 4
+    behavior:
+      high: Enable counting (most modes)
+      low: "Disable counting (Mode 0, 2, 3), Force output high (Mode 2)"
+      rising_edge: "Trigger operation (Mode 1, 5)"
+  timing_parameters:
+    clock_input:
+      min_frequency: DC
+      max_frequency: 2.6 MHz
+      min_high_time: 230 ns
+      min_low_time: 230 ns
+    gate_input:
+      setup_time: 50 ns minimum (edge-triggered modes)
+      hold_time: 50 ns minimum (edge-triggered modes)
+    data_bus:
+      setup_time: 100 ns minimum
+      hold_time: 10 ns minimum
+    output_pulse:
+      min_width: 1 clock cycle
+      min_high_time: 1 clock cycle
+      min_low_time: 1 clock cycle
+  electrical_characteristics:
+    power_supply:
+      vcc: +5V ±10%
+      current_consumption: 85mA typical
+    input_levels:
+      vih: +2.0V minimum
+      vil: +0.8V maximum
+    output_levels:
+      voh: +2.4V minimum at -400μA
+      vol: +0.45V maximum at 2mA
+    output_drive:
+      sink_current: 2mA maximum
+      source_current: 400μA maximum
+  counter_latch_command:
+    control_word_bits:
+      "SC1-SC0": "Counter to latch (00=Counter0, 01=Counter1, 10=Counter2)"
+      "RW1-RW0": 00 (counter latch command)
+      "M2-M1-M0": Don't care (000)
+      BCD: Don't care (0)
+    operation: Latches current count value for reading without disturbing counting
+  read_back_command:
+    compatibility: 8254 only (not available on 8253)
+    features[3]: Latch multiple counters simultaneously,Read status of counters,Read latch status
+  applications:
+    common_uses[6]: System timer (typically Counter 0 at 18.2 Hz in IBM PC),DRAM refresh timer,Speaker tone generation,Real-time clock functions,Baud rate generation,Timeout and delay functions
+    ibm_pc_configuration:
+      counter_0: "System timer (18.2 Hz, Mode 3)"
+      counter_1: DRAM refresh (Mode 2)
+      counter_2: Speaker tone generation (Mode 3)
+      clock_frequency: 1.19318 MHz
+      control_port: 0x43
+      counter_ports[3]: 0x40,0x41,0x42
+  comparison_with_8254:
+    "8253_features"[3]: 3 independent 16-bit counters,6 operating modes,Binary and BCD counting
+    "8254_additional_features"[3]: Read-back command,Higher clock frequency (up to 10 MHz),Additional status register
+    compatibility: 8254 is pin and software compatible with 8253
