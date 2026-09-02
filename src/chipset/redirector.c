@@ -214,8 +214,39 @@ static void fn_install_check(void) {
 // layout. DR-DOS 8.1 follows it. DOS 3 put the same field at +0x92, so a
 // guess either way would have been wrong half the time.
 #define SDA_FN1     0x09Eu   // canonicalised name, ASCIIZ, e.g. "H:\\SUB\\*.*"
-#define SDA_SDB     0x19Eu   // search data block, 21 bytes, our search state
-#define SDA_DIRENT  0x1B3u   // found file, a 32-byte directory entry
+#define SDA_DTA_OFF 0x00Cu   // the caller's DTA: offset here, segment at +2
+
+/*
+ * The search block lives in the caller's DTA, not in the SDA.
+ *
+ * No SDA layout says so, and entries written into the SDA at every offset
+ * a layout suggested were simply never read: DIR kept showing one blank
+ * line. DOS hands the redirector the DTA and expects the whole 53-byte
+ * block there, its own search state first and the found file after.
+ * pico-286's network redirector does exactly this, which is what settled
+ * it -- reading a working implementation rather than deducing one.
+ *
+ *   +0      drive letter, bit 7 set to mark it a redirector's
+ *   +1..11  search template
+ *   +12     search attributes
+ *   +13     entry index, which is ours to use as the position
+ *   +15     parent cluster
+ *   +17..20 reserved
+ *   +21     found file: name[11], attribute, 10 reserved, time, date,
+ *           start cluster, then a 32-bit size
+ */
+#define SDB_DRIVE     0
+#define SDB_TEMPLATE  1
+#define SDB_ATTR      12
+#define SDB_INDEX     13
+// Swept over SWD to find where DR-DOS actually reads it.
+uint8_t sdb_found_offset = 21;
+#define SDB_FOUND     sdb_found_offset
+#define FOUND_ATTR    11
+#define FOUND_TIME    22
+#define FOUND_DATE    24
+#define FOUND_CLUSTER 26
+#define FOUND_SIZE    28
 
 static void guest_poke_lin(const uint32_t pa, const uint8_t v) {
     if (pa < RAM_SIZE) RAM[pa] = v;
@@ -302,29 +333,40 @@ static void split_template(const uint32_t sda, char *dir, const size_t dirsz,
 }
 
 /*
- * Fill in the directory entry DOS will copy into the caller's DTA, and
- * remember where to carry on.
- *
- * The search state lives in the guest's own SDB rather than here, which
- * is what makes find-next work across any number of interleaved searches:
- * DOS hands the block back each time.
+ * Fill in the caller's DTA: our position, and the file we found.
  */
+static uint32_t dta_addr(void) {
+    return ((uint32_t)guest_peek_lin16(sda_addr + SDA_DTA_OFF + 2) << 4) +
+           guest_peek_lin16(sda_addr + SDA_DTA_OFF);
+}
+
 static void publish_entry(const uint32_t sda, const FILINFO *fno,
                           const uint16_t next_index) {
+    (void)sda;
+    const uint32_t dta = dta_addr();
     char fcb[11];
     to_fcb(fno->altname[0] ? fno->altname : fno->fname, fcb);
 
-    for (int i = 0; i < 11; i++) guest_poke_lin(sda + SDA_DIRENT + i, (uint8_t)fcb[i]);
-    guest_poke_lin(sda + SDA_DIRENT + 11, (uint8_t)fno->fattrib);
-    for (int i = 12; i < 22; i++) guest_poke_lin(sda + SDA_DIRENT + i, 0);
-    guest_poke_lin16(sda + SDA_DIRENT + 22, fno->ftime);
-    guest_poke_lin16(sda + SDA_DIRENT + 24, fno->fdate);
-    guest_poke_lin16(sda + SDA_DIRENT + 26, 0);          // start cluster: none
-    guest_poke_lin16(sda + SDA_DIRENT + 28, (uint16_t)(fno->fsize & 0xFFFFu));
-    guest_poke_lin16(sda + SDA_DIRENT + 30, (uint16_t)(fno->fsize >> 16));
+    // Everything DOS put at the front is left alone except the drive
+    // byte, whose top bit marks the block as a redirector's.
+    // The letter itself with bit 7, not the drive number: that is what
+    // pico-286 writes and what DOS checks for.
+    guest_poke_lin(dta + SDB_DRIVE, 0x80u | (uint8_t)REDIR_DRIVE);
+    guest_poke_lin16(dta + SDB_INDEX, next_index);
 
-    printf("[redir] found '%.11s' attr %02X size %lu\n",
-           fcb, fno->fattrib, (unsigned long)fno->fsize);
+    const uint32_t f = dta + SDB_FOUND;
+    for (int i = 0; i < 11; i++) guest_poke_lin(f + i, (uint8_t)fcb[i]);
+    guest_poke_lin(f + FOUND_ATTR, (uint8_t)fno->fattrib);
+    for (int i = 12; i < 22; i++) guest_poke_lin(f + i, 0);
+    guest_poke_lin16(f + FOUND_TIME, fno->ftime);
+    guest_poke_lin16(f + FOUND_DATE, fno->fdate);
+    guest_poke_lin16(f + FOUND_CLUSTER, 0);
+    guest_poke_lin16(f + FOUND_SIZE, (uint16_t)(fno->fsize & 0xFFFFu));
+    guest_poke_lin16(f + FOUND_SIZE + 2, (uint16_t)(fno->fsize >> 16));
+
+    printf("[redir] found '%.11s' attr %02X size %lu -> DTA %05lX\n",
+           fcb, fno->fattrib, (unsigned long)fno->fsize, (unsigned long)dta);
+    (void)dta;
     (void)next_index;
 }
 
@@ -352,7 +394,6 @@ static void publish_entry(const uint32_t sda, const FILINFO *fno,
  */
 static char     search_dir[160];
 static char     search_pattern[11];
-static uint16_t search_index;
 static uint8_t  search_attr;
 
 /*
@@ -421,37 +462,32 @@ static bool search_step(const uint32_t sda, uint16_t index) {
 static void fn_find_first(void) {
     if (!sda_addr) { decline(); return; }
 
-    // The drive byte with bit 7 set is how DOS knows the block belongs to
-    // a redirector rather than to its own directory code.
-    guest_poke_lin(sda_addr + SDA_SDB, 0x80u | (REDIR_DRIVE - 'A' + 1));
-    char dir[160], pattern[11];
-    split_template(sda_addr, dir, sizeof dir, pattern);
-    for (int i = 0; i < 11; i++)
-        guest_poke_lin(sda_addr + SDA_SDB + 1 + i, (uint8_t)pattern[i]);
-    guest_poke_lin(sda_addr + SDA_SDB + 12, 0x16u);   // attributes searched
-
     split_template(sda_addr, search_dir, sizeof search_dir, search_pattern);
-    search_index = 0;
-    search_attr  = (uint8_t)regs.cx;
+    search_attr = (uint8_t)regs.cx;
 
-    if (search_step(sda_addr, 0)) { search_index = 1; ok(); }
+    const uint32_t dta = dta_addr();
+    for (int i = 0; i < 11; i++)
+        guest_poke_lin(dta + SDB_TEMPLATE + i, (uint8_t)search_pattern[i]);
+    guest_poke_lin(dta + SDB_ATTR, search_attr);
+
+    if (search_step(sda_addr, 0)) ok();
     else fail(DOS_NO_MORE_FILES);
 }
 
 static void fn_find_next(void) {
     if (!sda_addr) { decline(); return; }
 
-    char dir[160], pattern[11];
-    split_template(sda_addr, dir, sizeof dir, pattern);
+    /*
+     * Where to carry on, and what to look for, both come back in the
+     * block DOS kept for us. Nothing here has to remember which search is
+     * which, so any number can be interleaved.
+     */
+    const uint32_t dta = dta_addr();
+    const uint16_t index = guest_peek_lin16(dta + SDB_INDEX);
+    search_attr = guest_peek_lin(dta + SDB_ATTR);
+    split_template(sda_addr, search_dir, sizeof search_dir, search_pattern);
 
-    // A different search than the one in progress starts from the top.
-    if (strcmp(dir, search_dir) != 0 || memcmp(pattern, search_pattern, 11) != 0) {
-        memcpy(search_dir, dir, sizeof search_dir);
-        memcpy(search_pattern, pattern, 11);
-        search_index = 0;
-    }
-
-    if (search_step(sda_addr, search_index)) { search_index++; ok(); }
+    if (search_step(sda_addr, index)) ok();
     else fail(DOS_NO_MORE_FILES);
 }
 

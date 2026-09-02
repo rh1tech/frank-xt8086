@@ -384,7 +384,21 @@ __force_inline static uint16_t port_read(const uint32_t address, const bool bhe)
 
     // BHE=0, A0=0 -> 16-битная операция word (оба байта)
     if (unlikely(!bhe && !a0)) {
-        return byte | (port_read8(address + bhe) << 8);
+        /*
+         * address + 1, not address + bhe.
+         *
+         * bhe is zero in exactly this branch -- that is what selects it --
+         * so adding it read the low byte twice and returned it in both
+         * halves. Every 16-bit IN on the machine gave a value whose high
+         * byte was a copy of its low one.
+         *
+         * The redirector is where it showed: its data port hands back one
+         * register per access and advances on the second, so DOS received
+         * neither the register values nor the advance, and DIR on drive H:
+         * printed one blank entry and no free space no matter what the
+         * firmware answered.
+         */
+        return byte | (port_read8(address + 1) << 8);
     }
 
     return byte << a0;
