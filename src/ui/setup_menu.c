@@ -222,7 +222,19 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
     const int wx = (TEXTMODE_COLS - BROWSER_W) / 2;
     const int wy = (TEXTMODE_ROWS - BROWSER_H) / 2 - 1;
 
+    // Start in the directory the current selection lives in, so changing
+    // a drive that is already set does not begin from the top every time.
     strcpy(current_path, "/XT");
+    if (selected_path && selected_path[0] == '/') {
+        const char *slash = strrchr(selected_path, '/');
+        if (slash && slash != selected_path) {
+            const size_t n = (size_t)(slash - selected_path);
+            if (n < sizeof current_path) {
+                memcpy(current_path, selected_path, n);
+                current_path[n] = '\0';
+            }
+        }
+    }
 
     while (1) {
         item_count = 0;
@@ -243,11 +255,16 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
         // this runs, so every FatFs call here is fenced. See core/fslock.h.
         {
             FS_LOCK();
-            if (f_opendir(&dir, current_path) != FR_OK) {
-                strcpy(current_path, "/");
-                f_opendir(&dir, current_path);
-            }
+            FRESULT od = f_opendir(&dir, current_path);
             FS_UNLOCK();
+            if (od != FR_OK) {
+                // Falling back silently made a card problem look like a
+                // browser that simply ignored where it was told to start.
+                printf("[browser] cannot open %s (%d); falling back to /\n",
+                       current_path, (int)od);
+                strcpy(current_path, "/");
+                FS_LOCK(); f_opendir(&dir, current_path); FS_UNLOCK();
+            }
         }
 
         while (item_count < BROWSER_MAX_FILES) {

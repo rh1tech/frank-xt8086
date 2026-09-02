@@ -342,6 +342,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     }
 
     // SETUP, before the disks are opened and before core 1 starts.
+    printf("[boot] SETUP %s\n", wants_setup ? "requested" : "not requested");
     if (wants_setup) setup_menu();
 
     media_reload();

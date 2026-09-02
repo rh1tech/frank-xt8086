@@ -57,6 +57,11 @@ static key_t poll_key(void) {
         const uint8_t sc = current_scancode;
         current_scancode = 0;
 
+        // Traced because "DEL does nothing" is unfalsifiable without
+        // knowing what the keyboard actually sent. Only runs while the
+        // splash is up, so it costs the guest nothing.
+        printf("[key] %02X\n", sc);
+
         if (sc == XT_SCANCODE_EXT) { extended = true; return KEY_NONE; }
 
         const bool was_ext = extended;
