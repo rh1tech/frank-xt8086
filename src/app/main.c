@@ -457,8 +457,26 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * would take 32K away from a guest that had already been
                  * told it had them.
                  */
-                const bool herc = settings.hercules && cga.herc_selected &&
-                                  (cga.herc_config & 1u) && (cga.herc_mode & 0b10);
+                const bool herc_wanted = cga.herc_selected &&
+                                         (cga.herc_config & 1u) &&
+                                         (cga.herc_mode & 0b10);
+                const bool herc = settings.hercules && herc_wanted;
+
+                /*
+                 * Say so rather than showing nothing.
+                 *
+                 * With the card switched off its framebuffer at 0xB0000
+                 * is ordinary memory, so software asking for Hercules
+                 * draws a perfectly good picture into RAM and the screen
+                 * stays black. That is indistinguishable from a hang
+                 * unless someone says which of the two it is.
+                 */
+                static bool herc_warned;
+                if (herc_wanted && !settings.hercules && !herc_warned) {
+                    herc_warned = true;
+                    printf("[video] software asked for Hercules graphics, but the card "
+                           "is off in SETUP; it is drawing into memory, not video\n");
+                }
 
                 if (herc) {
                     videomode = HERC_720x348x2;
