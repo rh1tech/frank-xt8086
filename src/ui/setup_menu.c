@@ -6,6 +6,8 @@
 #include "fslock.h"
 #include <string.h>
 #include <stdio.h>
+
+#include "conkey.h"
 #include <stdlib.h>
 #include <pico/time.h>
 #include "ff.h"
@@ -117,27 +119,8 @@ static uint8_t wait_scancode_timeout(uint32_t timeout_ms) {
         const uint32_t poll_us = (remain_us < (int64_t)SETUP_POLL_US)
             ? (uint32_t)remain_us : SETUP_POLL_US;
 
-        int ch = getchar_timeout_us(poll_us);
-        if (ch == PICO_ERROR_TIMEOUT) continue;
-        if (ch == '\r' || ch == '\n') return 0x1C;   /* ENTER */
-
-        if (ch == 0x1B) {
-            /* Bare ESC, or the start of a cursor-key sequence. 50 ms is
-             * long enough for the rest of one to arrive over a 115200
-             * line and short enough not to feel like a hang. */
-            ch = getchar_timeout_us(50000);
-            if (ch == PICO_ERROR_TIMEOUT) return 0x01;   /* ESC */
-            if (ch == '[' || ch == 'O') {
-                const int c2 = getchar_timeout_us(50000);
-                if (c2 == 'A') return 0x48;   /* UP    */
-                if (c2 == 'B') return 0x50;   /* DOWN  */
-                if (c2 == 'C') return 0x4D;   /* RIGHT */
-                if (c2 == 'D') return 0x4B;   /* LEFT  */
-            }
-            continue;
-        }
-
-        return (uint8_t)ch;
+        const uint8_t sc = console_scancode(poll_us);
+        if (sc) return sc;
     }
 }
 
@@ -154,11 +137,17 @@ bool save_settings(void) {
     // Устанавливаем текущую версию перед сохранением
     settings.version = SETTINGS_VERSION;
 
-    if (f_open(&f, CONFIG_FILE, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
+    // Locked: the drive menu saves while the guest is running, so this
+    // races core 1's hard disk reads exactly as the browser does.
+    FS_LOCK();
+    if (f_open(&f, CONFIG_FILE, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) {
+        FS_UNLOCK();
         return false;
+    }
 
     f_write(&f, &settings, sizeof(settings), &bw);
     f_close(&f);
+    FS_UNLOCK();
 
     return bw == sizeof(settings);
 }
@@ -168,12 +157,16 @@ bool load_settings(void) {
     UINT br;
     settings_s temp_settings;
 
-    if (f_open(&f, CONFIG_FILE, FA_READ) != FR_OK)
+    FS_LOCK();
+    if (f_open(&f, CONFIG_FILE, FA_READ) != FR_OK) {
+        FS_UNLOCK();
         return false;
+    }
 
     // Читаем настройки во временную структуру
     f_read(&f, &temp_settings, sizeof(temp_settings), &br);
     f_close(&f);
+    FS_UNLOCK();
 
     // Проверяем размер файла и версию структуры
     if (br != sizeof(settings) || temp_settings.version != SETTINGS_VERSION) {

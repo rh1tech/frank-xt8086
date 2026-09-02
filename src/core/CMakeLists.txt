@@ -19,6 +19,7 @@ target_sources(xt8086_core INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/cpu_bus.c
         ${CMAKE_CURRENT_LIST_DIR}/cpu_clock.c
         ${CMAKE_CURRENT_LIST_DIR}/cpu_probe.c
+        ${CMAKE_CURRENT_LIST_DIR}/fslock.c
         ${CMAKE_CURRENT_LIST_DIR}/state.c
         ${CMAKE_CURRENT_LIST_DIR}/../chipset/mc146818.c
         ${CMAKE_CURRENT_LIST_DIR}/../chipset/adlib.c

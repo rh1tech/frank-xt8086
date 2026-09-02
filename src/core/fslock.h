@@ -35,11 +35,28 @@
 
 #include <hardware/sync.h>
 
-static inline spin_lock_t *fs_spin(void) {
-    static spin_lock_t *lock;
-    if (!lock) lock = spin_lock_instance(spin_lock_claim_unused(true));
-    return lock;
-}
+/*
+ * One lock, shared by every translation unit.
+ *
+ * This was a `static inline` function in this header wrapping a
+ * function-local `static spin_lock_t *lock`. That gives each translation
+ * unit its own copy of the variable, so main.c, setup_menu.c and the unit
+ * holding ide.h each claimed a *different* spinlock and none of them ever
+ * excluded any other. The lock read correctly and did nothing.
+ *
+ * It looked like it worked because the only path that had been exercised
+ * was SETUP, which runs before core 1 is launched and therefore has no
+ * contention to lose. The drive menu is the same browser with the guest
+ * running underneath, and there f_opendir() started returning FR_NO_PATH:
+ * core 1's hard disk reads were moving the shared FatFs window out from
+ * under core 0's directory walk.
+ *
+ * fs_lock_init() must run before anything touches the filesystem and
+ * before core 1 starts. main() calls it first thing.
+ */
+extern spin_lock_t *fs_lock_ptr;
+
+void fs_lock_init(void);
 
 /*
  * The *unsafe* variants, which is to say the ones that do not touch the
@@ -50,19 +67,17 @@ static inline spin_lock_t *fs_spin(void) {
  * init runs there -- and holding this lock across an SD card read is
  * milliseconds. Blocking that interrupt for milliseconds stops the
  * scanline chain, the display loses sync, and the monitor drops the
- * signal entirely. Which is exactly what it did: the picture vanished on
- * every keypress in the file browser, because every keypress re-read a
- * directory.
+ * signal entirely.
  *
  * Dropping the interrupt masking is safe here because nothing that runs
  * in an interrupt handler on the *same* core also takes this lock. On
  * core 0 it is taken only by the main loop -- floppy DMA, the browser,
- * media_reload -- and none of core 0's handlers (VGA, audio, USB) touch
- * the filesystem. On core 1 it is taken only inside the bus interrupt,
- * and core 1's own loop never touches the filesystem. So there is no
- * same-core reentrancy for interrupt masking to protect against; the only
- * contention is between the two cores, which is what the spinlock itself
- * is for.
+ * media_reload, settings -- and none of core 0's handlers (VGA, audio,
+ * USB) touch the filesystem. On core 1 it is taken only inside the bus
+ * interrupt, and core 1's own loop never touches the filesystem. So there
+ * is no same-core reentrancy for interrupt masking to protect against;
+ * the only contention is between the two cores, which is what the
+ * spinlock itself is for.
  */
-#define FS_LOCK()    spin_lock_unsafe_blocking(fs_spin())
-#define FS_UNLOCK()  spin_unlock_unsafe(fs_spin())
+#define FS_LOCK()    spin_lock_unsafe_blocking(fs_lock_ptr)
+#define FS_UNLOCK()  spin_unlock_unsafe(fs_lock_ptr)

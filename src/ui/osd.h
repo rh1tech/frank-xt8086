@@ -15,12 +15,21 @@
  * VIDEORAM. The guest carries on running underneath, writing a screen
  * nobody is looking at, and gets it back untouched when the menu closes.
  *
- * The 8086 is not paused, and cannot be. Its HOLD pin is strapped to
- * ground on this board and minimum mode gives no other way to stall it
- * for an unbounded time, so "pausing" would mean holding READY low across
- * a bus cycle and hoping nothing times out. Letting it run is both easier
- * and more honest: a guest that was mid-disk-read simply waits, exactly
- * as it would for a slow drive.
+ * The 8086 is stopped for as long as the menu is up.
+ *
+ * This said for a while that it could not be, on the grounds that HOLD is
+ * strapped to ground. That was the wrong pin: READY is ours, and holding
+ * it low parks the CPU in wait states indefinitely -- which is already
+ * what every IDE sector read does for milliseconds at a time. There is no
+ * bus timeout on an 8086 to lose, and system memory is PSRAM rather than
+ * DRAM waiting on refresh.
+ *
+ * It matters because this menu browses the card on core 0 while the hard
+ * disk model browses it on core 1, and FatFs has a single window buffer
+ * per volume. Interleaving them corrupted it: f_opendir() returned
+ * FR_NO_PATH for directories that plainly existed, and picking a file
+ * crashed the machine. Stopping the guest removes the concurrency rather
+ * than trying to survive it. See bus_pause() in core/cpu_bus.c.
  *
  * Opened by Ctrl+Alt+F1, which the keyboard path swallows rather than
  * passing on -- see handleScancode() in app/main.c.

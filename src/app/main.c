@@ -243,6 +243,9 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     set_sys_clock_hz(PICO_CLOCK_SPEED_MHZ, true);
 
+    // Before anything can reach the filesystem, and before core 1 exists.
+    fs_lock_init();
+
     // The console first, always. stdio is UART0 on J1 and needs nothing
     // more than its pins, so it costs microseconds and it means every
     // later step has somewhere to report a failure — including a

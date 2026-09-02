@@ -155,6 +155,17 @@
 // Core entry points
 // ============================================================================
 void cpu_bus_init(void);
+
+/*
+ * Stop and restart the 8086, from core 0.
+ *
+ * bus_pause() returns once core 1 has parked between bus cycles, which
+ * means it is not inside FatFs and core 0 has the filesystem to itself.
+ * The guest resumes exactly where it left off; it experiences the pause
+ * as one very slow bus cycle. See cpu_bus.c for why this is safe.
+ */
+void bus_pause(void);
+void bus_resume(void);
 void start_cpu_clock(uint32_t frequency_khz);
 void reset_cpu(void);
 void mc6845_init_text_mode(void);  // MC6845 defaults for 80x25 text

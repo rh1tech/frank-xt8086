@@ -16,6 +16,9 @@
 #include "hid_app.h"
 #include "setup_menu.h"
 #include "state.h"
+#include "xt8086.h"
+
+#include "conkey.h"
 #include "ui_gfx.h"
 
 extern uint8_t  current_scancode;
@@ -83,6 +86,13 @@ static void osd_close(void) {
 static uint8_t osd_wait_key(void) {
     for (;;) {
         audio_task();
+
+        // The console gets a say as well. Without this the drive menu was
+        // reachable only from a USB keyboard, which is also why it was
+        // the one menu that could not be exercised from the bench.
+        const uint8_t ck = console_scancode(0);
+        if (ck) return ck;
+
         keyboard_tick();
         if (current_scancode) {
             const uint8_t sc = current_scancode;
@@ -157,6 +167,18 @@ void osd_drive_menu(void) {
     };
     const int count = (int)(sizeof rows / sizeof rows[0]);
 
+    /*
+     * Stop the guest for as long as the menu is up.
+     *
+     * This is what makes the menu safe. The browser walks the card on
+     * core 0 while the hard disk model walks it on core 1, and FatFs has
+     * one window buffer per volume -- interleaving the two corrupted it,
+     * which is why f_opendir() started failing and why picking a file
+     * crashed the machine. With the 8086 parked there is only one core in
+     * the filesystem, which is the same position SETUP has always been in.
+     */
+    bus_pause();
+
     osd_open();
 
     int sel = 0;
@@ -186,7 +208,13 @@ void osd_drive_menu(void) {
         // Reopening the images is main()'s job: it owns the FIL objects
         // and the mask the FDC reads. Saving is unconditional, so a swap
         // survives the next reboot as well as this session.
+        //
+        // Still inside the pause: this closes the very file core 1 reads
+        // the hard disk through, so it is the last thing that should
+        // happen with the guest running.
         save_settings();
         media_reload();
     }
+
+    bus_resume();
 }
