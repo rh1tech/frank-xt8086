@@ -228,6 +228,20 @@ bool handleScancode(const uint8_t ps2scancode) {
     // IMPORTANT! Dont remove, hack to create .flashdata section for linker
     extern const uint32_t PICO_CLOCK_SPEED_MHZ;
     assert(PICO_CLOCK_SPEED_MHZ == PICO_CLOCK_SPEED);
+    /*
+     * Hold the speaker quiet before anything else.
+     *
+     * A reset leaves every pin an input, so GP46 floats until audio_init
+     * claims it -- and it is the input of an amplifier, which makes noise
+     * out of whatever it picks up. That is the hiss on reboot. Driving it
+     * low costs two instructions and covers the whole of startup, which
+     * is otherwise the better part of a second of PSRAM, video and card
+     * initialisation with nothing holding the pin.
+     */
+    gpio_init(BEEPER_PIN);
+    gpio_set_dir(BEEPER_PIN, GPIO_OUT);
+    gpio_put(BEEPER_PIN, 0);
+
     vreg_disable_voltage_limit();
     vreg_set_voltage(VREG_VOLTAGE_1_65);
     busy_wait_at_least_cycles((SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST_DELAY_US * (uint64_t) XOSC_HZ) / 1000000);
