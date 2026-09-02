@@ -196,12 +196,6 @@ static inline void pic_init(void) {
  * scancodes themselves because that is all the HID layer hands us: make
  * and break codes, no separate modifier state.
  */
-#define SC_CTRL_MAKE  0x1Du
-#define SC_CTRL_BREAK 0x9Du
-#define SC_ALT_MAKE   0x38u
-#define SC_ALT_BREAK  0xB8u
-#define SC_F1         0x3Bu
-
 static bool ctrl_down, alt_down;
 volatile bool osd_requested;
 

@@ -35,6 +35,8 @@ static hid_keyboard_report_t prev_report = {0, 0, {0}};
 // 4. Если мышь подключена → отправляет идентификатор "M"
 // 5. DOS драйвер распознает Microsoft Serial Mouse
 
+extern uint8_t current_scancode;   // defined in app/main.c
+
 static bool usb_mouse_connected = false;
 
 static queue_t keyboard_queue;
@@ -324,11 +326,45 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 }
 
 
+void keyboard_inject(const uint8_t xt_scancode) {
+    queue_try_add(&keyboard_queue, &xt_scancode);
+}
+
 void keyboard_tick(void) {
     tuh_task();
     typematic_task();
+
+    /*
+     * Hand over the next code only once the guest has taken the last one.
+     *
+     * Port 0x60 does not self-clear; the BIOS acknowledges by pulsing bit
+     * 7 of port 0x61, and that is what zeroes current_scancode. Writing a
+     * new code before then simply overwrote the old one, so anything
+     * arriving faster than the guest's interrupt handler lost bytes --
+     * which for a two-byte sequence like E0 48 means the prefix vanishes
+     * and an arrow key turns into whatever the second byte means on its
+     * own.
+     *
+     * The firmware's own menus read current_scancode and zero it
+     * themselves, so this drains for them too.
+     */
+    static absolute_time_t handover_deadline;
+
+    if (current_scancode) {
+        /*
+         * Waiting, but not forever. If the guest stops acknowledging --
+         * early boot before INT 9 is installed, or a wedged handler --
+         * an unconditional wait would take the keyboard away entirely,
+         * which is a worse failure than the dropped byte this avoids.
+         * After the deadline, fall back to the old behaviour and
+         * overwrite.
+         */
+        if (absolute_time_diff_us(get_absolute_time(), handover_deadline) > 0) return;
+    }
+
     uint8_t xt_code;
     if (queue_try_remove(&keyboard_queue, &xt_code)) {
         handleScancode(xt_code);
+        handover_deadline = make_timeout_time_ms(50);
     }
 }

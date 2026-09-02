@@ -16,6 +16,7 @@
 #include "hid_app.h"
 #include "setup_menu.h"
 #include "state.h"
+#include "hid_app.h"
 #include "xt8086.h"
 
 #include "conkey.h"
@@ -217,4 +218,22 @@ void osd_drive_menu(void) {
     }
 
     bus_resume();
+
+    /*
+     * Tell the guest that Ctrl and Alt came back up.
+     *
+     * It watched them go down -- Ctrl+Alt+F1 raises IRQ1 for the two
+     * modifiers before F1 identifies the chord, and by then the guest has
+     * already been told. The releases then arrive while the menu is up,
+     * where handleScancode deliberately withholds IRQ1 so the guest does
+     * not see the menu being driven. So the makes reached it and the
+     * breaks never did, and it went on believing both keys were held: no
+     * arrow keys, and every other key doing whatever it does with Ctrl or
+     * Alt applied to it.
+     *
+     * Queued rather than written straight to current_scancode, so each
+     * one waits for the guest to acknowledge the last.
+     */
+    keyboard_inject(SC_CTRL_BREAK);
+    keyboard_inject(SC_ALT_BREAK);
 }
