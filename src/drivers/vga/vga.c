@@ -475,7 +475,8 @@ void __time_critical_func() vga_scanline_dma() {
         }
         case TGA_160x200x16: {
             const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[
-                    (mc6845.vram_offset + __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
+                    (cga.tandy_crt_base + mc6845.vram_offset +
+                     __fast_mul(y >> 1, 80) + ((y & 1) << 13)) & (VIDEORAM_SIZE - 1)];
             __builtin_prefetch(tga_row);
             for (int x = 20; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
@@ -509,7 +510,8 @@ void __time_critical_func() vga_scanline_dma() {
         case TGA_320x200x16: {
             //4bit buf, 32-bit reads
             const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[
-                    (mc6845.vram_offset + __fast_mul(y >> 2, 160) + ((y & 3) << 13)) & 0x7FFF];
+                    (cga.tandy_crt_base + mc6845.vram_offset +
+                     __fast_mul(y >> 2, 160) + ((y & 3) << 13)) & (VIDEORAM_SIZE - 1)];
             __builtin_prefetch(tga_row);
             for (int x = 40; x--;) {
                 const uint32_t dword = *tga_row++; // Fetch 8 pixels from TGA memory
@@ -519,6 +521,33 @@ void __time_critical_func() vga_scanline_dma() {
                 *scanline_output_32++ = palette[(dword >> 8) & 15] << 16 | palette[(dword >> 12) & 15];
                 *scanline_output_32++ = palette[(dword >> 16) & 15] << 16 | palette[(dword >> 20) & 15];
                 *scanline_output_32++ = palette[(dword >> 24) & 15] << 16 | palette[(dword >> 28)];
+            }
+            break;
+        }
+
+        /*
+         * Tandy 640x200x16.
+         *
+         * The same shape as the 320-wide mode above and for the same
+         * reason: four-way scanline interleave, one nibble a pixel. Only
+         * the numbers change -- 320 bytes a line rather than 160, and a
+         * 16K bank stride rather than 8K. Four banks of 16K is the whole
+         * 64K, and 4 * 50 * 320 = 64,000 of it is picture.
+         *
+         * 640 pixels means one output byte per pixel, where the 320-wide
+         * modes write a palette entry twice.
+         */
+        case TGA_640x200x16: {
+            const uint8_t *__restrict tga_row = &VIDEORAM[
+                    (cga.tandy_crt_base + mc6845.vram_offset +
+                     __fast_mul(y >> 2, 320) + ((y & 3) << 14)) & (VIDEORAM_SIZE - 1)];
+            __builtin_prefetch(tga_row);
+
+            uint8_t *__restrict out = (uint8_t *) scanline_output_32;
+            for (int x = 320; x--;) {
+                const uint8_t two_pixels = *tga_row++;
+                *out++ = (uint8_t)palette[two_pixels >> 4];
+                *out++ = (uint8_t)palette[two_pixels & 15];
             }
             break;
         }

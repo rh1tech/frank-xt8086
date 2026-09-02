@@ -25,6 +25,8 @@ __always_inline static void write_to(uint8_t *destination, const uint32_t addres
     destination[address] = byte_val;
 }
 
+extern cga_s cga;   // state.c; the Tandy page register lives in it
+
 // ============================================================================
 // Memory Read (16-bit)
 // ============================================================================
@@ -34,7 +36,9 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
     }
 
     if ((address - 0xB8000) < 0x8000) {
-        return *(uint16_t *)&VIDEORAM[address & 0x7FFF];
+        // + the Tandy CPU page, which is zero unless something set it.
+        return *(uint16_t *)&VIDEORAM[(cga.tandy_cpu_base + (address & 0x7FFF))
+                                      & (VIDEORAM_SIZE - 1)];
     }
 
     if ((address - 0xC8000) < 8192) {
@@ -79,7 +83,8 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
     }
 
     if ((address - 0xB8000) < 0x8000) {
-        write_to(VIDEORAM, address & 0x7FFF, data, bhe);
+        write_to(VIDEORAM, (cga.tandy_cpu_base + (address & 0x7FFF))
+                           & (VIDEORAM_SIZE - 1), data, bhe);
         return;
     }
 

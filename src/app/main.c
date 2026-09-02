@@ -487,9 +487,28 @@ bool handleScancode(const uint8_t ps2scancode) {
                 if (unlikely(cga.port3DA_tandy /* == 0x20 */)) {
                     // printf("Tandy hack detected: %i\n", videomode);
                     // videomode = (cga.port3D8 & 0b10000) ? TGA_320x200x16 : TGA_160x200x16;
-                    videomode = (videomode == CGA_640x200x2 ||
-                                 videomode == COMPOSITE_160x200x16)
-                                        ? TGA_320x200x16 : TGA_160x200x16;
+                    /*
+                     * Which of the three Tandy modes, decided from the
+                     * CRTC rather than from a video-array bit.
+                     *
+                     * h_displayed counts displayed characters, and the
+                     * Tandy 16-colour modes put four bytes in each: 40
+                     * characters is 160 bytes a line and 320 pixels, 80 is
+                     * 320 bytes and 640. So the register that has to be
+                     * right for the picture to be the right width is also
+                     * the one that says which mode it is. The video array
+                     * has bits that mean this too, but their meaning
+                     * varies across Tandy models and I have no way to
+                     * verify a guess; the character count is observable
+                     * and cannot be inconsistent with what is on screen.
+                     */
+                    if (mc6845.r.h_displayed >= 80)
+                        videomode = TGA_640x200x16;
+                    else if (videomode == CGA_640x200x2 ||
+                             videomode == COMPOSITE_160x200x16)
+                        videomode = TGA_320x200x16;
+                    else
+                        videomode = TGA_160x200x16;
                     // graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);

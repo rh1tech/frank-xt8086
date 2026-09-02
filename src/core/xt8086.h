@@ -61,7 +61,18 @@
 // ============================================================================
 // Memory map
 // ============================================================================
-#define VIDEORAM_SIZE        (32 * 1024)   // Tandy/PC Jr compat
+/*
+ * 64K, not 32K.
+ *
+ * Tandy's 640x200x16 needs 640 * 200 / 2 = 64,000 bytes, and every
+ * smaller mode still fits. The cost is 32K of SRAM, which the chip has
+ * spare: guest memory lives in PSRAM, so this array and the code are
+ * almost all that is in SRAM.
+ *
+ * It is also exactly four 16K pages, which is the unit the Tandy page
+ * register counts in.
+ */
+#define VIDEORAM_SIZE        (64 * 1024)   // Tandy/PC Jr compat
 #define RAM_SIZE             (736 * 1024)
 #define UMB_SIZE             (128 * 1024)
 

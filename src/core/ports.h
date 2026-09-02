@@ -268,6 +268,25 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
             tga_flip_flop ^= 1;
             return;
         }
+        /*
+         * Tandy/PCjr page register.
+         *
+         * Bits 0-2 pick the 16K page the CRTC displays, bits 3-5 the one
+         * the processor sees at B8000. 640x200x16 is 64K, four such
+         * pages, and the 32K window is the only way the CPU can reach all
+         * of it -- which is why this register has to exist before that
+         * mode can be written to at all.
+         *
+         * Zero at reset and left alone by anything that is not a Tandy,
+         * so a CGA guest sees the flat mapping it always had.
+         */
+        case 0x3DF: {
+            cga.tandy_crt_base = (uint32_t)(data & 0x07u) << 14;
+            cga.tandy_cpu_base = (uint32_t)((data >> 3) & 0x07u) << 14;
+            cga.updated = true;
+            return;
+        }
+
          case 0x3DE: {
             cga.port3DA_tandy = data;
             cga.updated = true;

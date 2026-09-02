@@ -157,6 +157,17 @@ typedef struct {
     uint8_t port3D9;
     uint8_t port3DA;
     uint8_t port3DA_tandy;
+
+    /*
+     * Tandy/PCjr page register, port 0x3DF, in 16K pages.
+     *
+     * crt_base is where the CRTC reads, cpu_base is what the processor
+     * sees through the 32K window at B8000. Both zero at reset, which is
+     * what a plain CGA leaves them as, so nothing changes for a machine
+     * that never writes the register.
+     */
+    uint32_t tandy_crt_base;
+    uint32_t tandy_cpu_base;
     bool updated;
 } cga_s;
 
