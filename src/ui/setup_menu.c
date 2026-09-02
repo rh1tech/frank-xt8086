@@ -53,7 +53,7 @@ static void clock_editor(void);
 
 static const MenuItem menu_items[] = {
     {"Machine",         .colors = {UI_YELLOW, UI_WIN_BG}},
-    {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 2, {"1 MHz", "4.75 MHz", "6 MHz"}},
+    {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 3, {"1 MHz", "4.77 MHz", "6 MHz", "8 MHz"}},
     {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
     {"Hercules",         ARRAY, &settings.hercules,       nullptr, 1, {"No", "Yes"}},

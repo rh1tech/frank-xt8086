@@ -160,9 +160,7 @@ static inline void pic_init(void) {
 // ============================================================================
 
 [[noreturn]] void bus_handler_core(void) {
-    // Таблица частот: индекс 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
-    static constexpr uint32_t cpu_frequencies[] = {1000, 4750, 6000};
-    const uint32_t cpu_freq = cpu_frequencies[settings.cpu_freq_index];
+    const uint32_t cpu_freq = cpu_frequency_khz();
 
     start_cpu_clock(cpu_freq); // Start i8086 clock generator
     pic_init(); // Initialize interrupt controller and start Core1 IRQ generator
@@ -295,8 +293,7 @@ bool handleScancode(const uint8_t ps2scancode) {
     // before core 1, because the probe drives the same bus and clock that
     // core 1 is about to take over. Ten milliseconds at the configured
     // speed is many times what an 8086 needs to reach its first fetch.
-    static constexpr uint32_t cpu_frequencies[] = { 1000, 4750, 6000 };
-    const uint32_t cpu_khz = cpu_frequencies[settings.cpu_freq_index];
+    const uint32_t cpu_khz = cpu_frequency_khz();
     const cpu_probe_result_t cpu = cpu_probe(cpu_khz, 10);
 
     if (!cpu.present) {

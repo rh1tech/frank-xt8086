@@ -61,7 +61,7 @@ typedef struct __attribute__((__packed__)) {
 typedef struct {
     uint16_t version;        // Версия структуры настроек
     uint8_t tandy_enabled;  // 0 = NO, 1 = YES
-    uint8_t cpu_freq_index; // 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
+    uint8_t cpu_freq_index; // index into cpu_frequency_khz()'s table
 
     /*
      * Which monitor mode 6 is being watched on.
@@ -116,6 +116,24 @@ typedef struct {
 #define CGA_MONITOR_COMPOSITE 2
 
 extern settings_s settings;
+
+/*
+ * The clock the 8086 is given, in kHz.
+ *
+ * One definition, because it was two: the table lived in bus_handler_core
+ * and again in the splash, and the two had to agree for the reported
+ * speed to be the real one.
+ *
+ * 8 MHz is there for a V20. An 8086 is a 5 MHz part and an 8086-2 an
+ * 8 MHz one, so whether the chip in the socket will take it depends on
+ * the chip; the firmware side is the same either way, since the bus is
+ * answered from a wait state rather than to a deadline.
+ */
+static inline uint32_t cpu_frequency_khz(void) {
+    static const uint32_t table[] = { 1000, 4770, 6000, 8000 };
+    const uint8_t i = settings.cpu_freq_index;
+    return table[i < (sizeof table / sizeof table[0]) ? i : 0];
+}
 
 // Файловый браузер для выбора образов дисков
 // Возвращает true если файл выбран, false при ESC
