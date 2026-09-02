@@ -458,6 +458,97 @@ static bool search_step(const uint32_t sda, uint16_t index) {
 }
 
 #define DOS_NO_MORE_FILES 0x12u
+#define DOS_FILE_NOT_FOUND 0x02u
+#define DOS_PATH_NOT_FOUND 0x03u
+
+/*
+ * Read the canonicalised name DOS left at SDA+0x9E and turn it into a
+ * path on the card.
+ *
+ * DOS has already applied the current directory by the time a redirector
+ * sees this, so "H:\D1\DAVE.EXE" arrives whole and only needs its drive
+ * letter removed and its separators turned around.
+ */
+static void full_path(char *out, const size_t outsz) {
+    char path[160];
+    size_t n = 0;
+    for (; n < sizeof path - 1; n++) {
+        const uint8_t c = guest_peek_lin(sda_addr + SDA_FN1 + n);
+        if (!c) break;
+        path[n] = (char)c;
+    }
+    path[n] = 0;
+
+    const char *p = path;
+    if (p[0] && p[1] == ':') p += 2;
+    while (*p == '\\' || *p == '/') p++;
+
+    snprintf(out, outsz, "%s/%s", REDIR_ROOT, p);
+    for (char *q = out; *q; q++) if (*q == '\\') *q = '/';
+
+    // A trailing separator is how the root arrives; FatFs wants it gone.
+    const size_t len = strlen(out);
+    if (len > 1 && out[len - 1] == '/') out[len - 1] = 0;
+}
+
+/*
+ * AX=1105h - change directory.
+ *
+ * Only has to say whether the directory is there. DOS keeps track of
+ * where the drive is; without an answer here it refuses to move at all,
+ * which is why CD on the card did nothing.
+ */
+static void fn_chdir(void) {
+    if (!sda_addr) { decline(); return; }
+
+    char path[200];
+    full_path(path, sizeof path);
+
+    FILINFO fno;
+    FS_LOCK();
+    const FRESULT rc = f_stat(path, &fno);
+    FS_UNLOCK();
+
+    // The root has no entry of its own to stat, and is always there.
+    const bool is_root = strcmp(path, REDIR_ROOT) == 0;
+
+    if (is_root || (rc == FR_OK && (fno.fattrib & AM_DIR))) {
+        regs.ax = 0;
+        ok();
+    } else {
+        fail(DOS_PATH_NOT_FOUND);
+    }
+}
+
+/*
+ * AX=110Fh - get file attributes, which DOS uses to ask "is this there?"
+ */
+static void fn_get_attributes(void) {
+    if (!sda_addr) { decline(); return; }
+
+    char path[200];
+    full_path(path, sizeof path);
+
+    FILINFO fno;
+    FS_LOCK();
+    const FRESULT rc = f_stat(path, &fno);
+    FS_UNLOCK();
+    if (rc != FR_OK) { fail(DOS_FILE_NOT_FOUND); return; }
+
+    uint16_t attr = 0;
+    if (fno.fattrib & AM_RDO) attr |= 0x01;
+    if (fno.fattrib & AM_HID) attr |= 0x02;
+    if (fno.fattrib & AM_SYS) attr |= 0x04;
+    if (fno.fattrib & AM_DIR) attr |= 0x10;
+    if (fno.fattrib & AM_ARC) attr |= 0x20;
+
+    regs.ax = attr;
+    regs.bx = (uint16_t)(fno.fsize >> 16);
+    regs.di = (uint16_t)(fno.fsize & 0xFFFFu);
+    regs.cx = fno.ftime;
+    regs.dx = fno.fdate;
+    ok();
+}
 
 static void fn_find_first(void) {
     if (!sda_addr) { decline(); return; }
@@ -491,6 +582,132 @@ static void fn_find_next(void) {
     else fail(DOS_NO_MORE_FILES);
 }
 
+// ---------------------------------------------------------------------------
+// Open files
+// ---------------------------------------------------------------------------
+//
+// DOS keeps one System File Table entry per open file and hands it to the
+// redirector at ES:DI. Everything about the file lives there except the
+// file itself, so the only thing kept on this side is the FatFs handle,
+// and the SFT carries its index.
+//
+// Offsets rather than a struct: the layout is DOS's, and a compiler's
+// idea of where to put a uint32 after a uint8 is not part of the contract.
+#define SFT_TOTAL_HANDLES  0
+#define SFT_OPEN_MODE      2
+#define SFT_ATTRIBUTE      4
+#define SFT_DEVICE_INFO    5
+#define SFT_FILE_HANDLE   11
+#define SFT_FILE_TIME     13
+#define SFT_FILE_DATE     15
+#define SFT_FILE_SIZE     17
+#define SFT_FILE_POSITION 21
+#define SFT_FILE_NAME     32
+
+#define MAX_OPEN_FILES 8
+static FIL  open_files[MAX_OPEN_FILES];
+static bool open_used[MAX_OPEN_FILES];
+
+#define DOS_TOO_MANY_FILES 0x04u
+#define DOS_INVALID_HANDLE 0x06u
+
+static uint32_t sft_addr(void) {
+    return ((uint32_t)regs.es << 4) + regs.di;
+}
+
+static void guest_poke_lin32(const uint32_t pa, const uint32_t v) {
+    guest_poke_lin16(pa, (uint16_t)v);
+    guest_poke_lin16(pa + 2, (uint16_t)(v >> 16));
+}
+
+static uint32_t guest_peek_lin32(const uint32_t pa) {
+    return (uint32_t)guest_peek_lin16(pa) |
+           (uint32_t)guest_peek_lin16(pa + 2) << 16;
+}
+
+static void fn_open(void) {
+    if (!sda_addr) { decline(); return; }
+
+    int h = -1;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) if (!open_used[i]) { h = i; break; }
+    if (h < 0) { fail(DOS_TOO_MANY_FILES); return; }
+
+    char path[200];
+    full_path(path, sizeof path);
+
+    FS_LOCK();
+    FRESULT rc = f_open(&open_files[h], path, FA_READ | FA_WRITE);
+    if (rc != FR_OK) rc = f_open(&open_files[h], path, FA_READ);
+    FS_UNLOCK();
+    if (rc != FR_OK) { fail(DOS_FILE_NOT_FOUND); return; }
+
+    open_used[h] = true;
+
+    const uint32_t sft = sft_addr();
+    const char *name = path;
+    for (const char *q = path; *q; q++) if (*q == '/') name = q + 1;
+    char fcb[11];
+    to_fcb(name, fcb);
+    for (int i = 0; i < 11; i++)
+        guest_poke_lin(sft + SFT_FILE_NAME + i, (uint8_t)fcb[i]);
+
+    // The top byte of the mode is DOS's and is left alone; the rest says
+    // the file is open for reading and writing on a remote drive.
+    const uint16_t mode = guest_peek_lin16(sft + SFT_OPEN_MODE);
+    guest_poke_lin16(sft + SFT_OPEN_MODE, (uint16_t)((mode & 0xFF00u) | 0xFF02u));
+    guest_poke_lin(sft + SFT_ATTRIBUTE, 0x08);
+    guest_poke_lin16(sft + SFT_DEVICE_INFO, (uint16_t)(0x8040u | REDIR_DRIVE));
+    guest_poke_lin16(sft + SFT_FILE_HANDLE, (uint16_t)h);
+    guest_poke_lin16(sft + SFT_FILE_TIME, 0x1000);
+    guest_poke_lin16(sft + SFT_FILE_DATE, 0x1000);
+    guest_poke_lin32(sft + SFT_FILE_SIZE, (uint32_t)f_size(&open_files[h]));
+    guest_poke_lin32(sft + SFT_FILE_POSITION, 0);
+
+    regs.ax = 0;
+    ok();
+}
+
+static void fn_close(void) {
+    const uint32_t sft = sft_addr();
+    const uint16_t h = guest_peek_lin16(sft + SFT_FILE_HANDLE);
+    if (h >= MAX_OPEN_FILES || !open_used[h]) { fail(DOS_INVALID_HANDLE); return; }
+
+    FS_LOCK();
+    f_close(&open_files[h]);
+    FS_UNLOCK();
+    open_used[h] = false;
+
+    guest_poke_lin16(sft + SFT_TOTAL_HANDLES, 0xFFFFu);
+    regs.ax = 0;
+    ok();
+}
+
+static void fn_read(void) {
+    const uint32_t sft = sft_addr();
+    const uint16_t h = guest_peek_lin16(sft + SFT_FILE_HANDLE);
+    if (h >= MAX_OPEN_FILES || !open_used[h]) { fail(DOS_INVALID_HANDLE); return; }
+
+    const uint32_t pos  = guest_peek_lin32(sft + SFT_FILE_POSITION);
+    const uint16_t want = regs.cx;
+    const uint32_t dta  = dta_addr();
+
+    // Straight into guest memory: RAM[] is the 8086's memory, so there is
+    // no buffer to copy through and nothing to size.
+    if (dta + want > RAM_SIZE) { fail(DOS_INVALID_HANDLE); return; }
+
+    UINT got = 0;
+    FS_LOCK();
+    FRESULT rc = f_lseek(&open_files[h], pos);
+    if (rc == FR_OK) rc = f_read(&open_files[h], &RAM[dta], want, &got);
+    FS_UNLOCK();
+    if (rc != FR_OK) { fail(DOS_INVALID_HANDLE); return; }
+
+    guest_poke_lin32(sft + SFT_FILE_POSITION, pos + got);
+    regs.ax = 0;
+    regs.cx = (uint16_t)got;
+    ok();
+}
+
 void redirector_task(void) {
     if (!pending) return;
     pending = false;
@@ -504,6 +721,12 @@ void redirector_task(void) {
     switch (fn) {
         case 0x00: fn_install_check(); break;
         case 0x0C: fn_disk_info();     break;
+        case 0x05: fn_chdir();         break;
+        case 0x06: fn_close();         break;
+        case 0x07: fn_close();         break;   // commit: nothing buffered
+        case 0x08: fn_read();          break;
+        case 0x16: fn_open();          break;
+        case 0x0F: fn_get_attributes(); break;
         case 0x1B: fn_find_first();    break;
         case 0x1C: fn_find_next();     break;
 
