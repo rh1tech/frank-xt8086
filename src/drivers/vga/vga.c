@@ -280,14 +280,29 @@ void __time_critical_func() vga_scanline_dma() {
     // choose odd/even image buffer pointer
     uint16_t y = scanline;
 
+    /*
+     * Hercules draws a line per scanline; everything else doubles.
+     *
+     * The CGA modes are 200 lines shown on 480, so each is drawn once and
+     * held for two. Hercules is 348, or whatever else the CRTC has been
+     * programmed for -- Planet X3 asks for 300 -- and doubling caps that
+     * at the 240 lines half of 480 allows. The top of the picture would
+     * be stretched over the whole screen and the rest simply missing.
+     */
+    const bool tall = graphics_mode == HERC_720x348x2 ||
+                      graphics_mode == HERC_720x348x2_90;
+    const uint32_t drawn_lines =
+            (uint32_t)mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) *
+            (tall ? 1u : 2u);
+
     // If line index beyond prepared image area — fall back to blank
-    if (unlikely(scanline >= mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2)) {
+    if (unlikely(scanline >= drawn_lines)) {
         dma_channel_set_read_addr(dma_ctrl_channel, &scanline_buffers[VBLANK], false);
         port3DA = 1;
         return;
     }
     // Non-interlace: skip odd sublines and fold y
-    if (likely((mc6845.r.interlace_mode & 1) == 0)) {
+    if (!tall && likely((mc6845.r.interlace_mode & 1) == 0)) {
         if (y & 1) {
             port3DA = 1;
             return;
@@ -588,31 +603,44 @@ void __time_critical_func() vga_scanline_dma() {
          * reversed once and then consumed from the bottom, which is what
          * CGA_640x200x2 does with the same problem.
          */
+        /*
+         * Hercules, one bit a pixel, four-way interleaved in 8K banks:
+         * line L at (L & 3) * 8192 + (L >> 2) * stride.
+         *
+         * The stride is the CRTC's displayed-character count, not a
+         * constant. A stock Hercules is 90 characters, 720 pixels, but
+         * the card is just a 6845 driving a bitmap and software
+         * reprograms it freely -- Planet X3 runs 640x300, which is 80.
+         * Hard-coding 90 tore its picture into diagonal stripes, because
+         * every line was read ten bytes further along than the last.
+         */
         case HERC_720x348x2:
         case HERC_720x348x2_90: {
-            const uint32_t *__restrict herc_row = (uint32_t *) &VIDEORAM[
-                    (mc6845.vram_offset + ((y & 3) << 13) + __fast_mul(y >> 2, 90))
+            const uint32_t stride = mc6845.r.h_displayed;
+            const uint8_t *__restrict herc_row = &VIDEORAM[
+                    (mc6845.vram_offset + ((y & 3) << 13) + __fast_mul(y >> 2, stride))
                     & (VIDEORAM_SIZE - 1)];
             __builtin_prefetch(herc_row);
 
-            // 720 pixels is 22 whole words plus a half.
-            for (int x = 22; x--;) {
-                uint32_t dword = rbit32(__builtin_bswap32(*herc_row++));
-                for (int i = 8; i--;) {
-                    uint32_t g = palette[dword & 1];               dword >>= 1;
-                    g |= (uint32_t) palette[dword & 1] << 8;       dword >>= 1;
-                    g |= (uint32_t) palette[dword & 1] << 16;      dword >>= 1;
-                    g |= (uint32_t) palette[dword & 1] << 24;      dword >>= 1;
-                    *scanline_output_32++ = g;
-                }
-            }
-            uint32_t dword = rbit32(__builtin_bswap32(*herc_row));
-            for (int i = 4; i--;) {
-                uint32_t g = palette[dword & 1];                   dword >>= 1;
-                g |= (uint32_t) palette[dword & 1] << 8;           dword >>= 1;
-                g |= (uint32_t) palette[dword & 1] << 16;          dword >>= 1;
-                g |= (uint32_t) palette[dword & 1] << 24;          dword >>= 1;
-                *scanline_output_32++ = g;
+            // Bit 7 is the leftmost pixel. Masked to a byte each: the
+            // palette holds the colour in both halves of a 16-bit word,
+            // and letting those overlap would blend neighbouring pixels
+            // together instead of placing them side by side.
+            const uint8_t c0 = (uint8_t)palette[0];
+            const uint8_t c1 = (uint8_t)palette[1];
+
+            for (uint32_t x = 0; x < stride; x++) {
+                const uint8_t b = *herc_row++;
+                *scanline_output_32++ =
+                        (uint32_t)((b & 0x80) ? c1 : c0)        |
+                        (uint32_t)((b & 0x40) ? c1 : c0) <<  8  |
+                        (uint32_t)((b & 0x20) ? c1 : c0) << 16  |
+                        (uint32_t)((b & 0x10) ? c1 : c0) << 24;
+                *scanline_output_32++ =
+                        (uint32_t)((b & 0x08) ? c1 : c0)        |
+                        (uint32_t)((b & 0x04) ? c1 : c0) <<  8  |
+                        (uint32_t)((b & 0x02) ? c1 : c0) << 16  |
+                        (uint32_t)((b & 0x01) ? c1 : c0) << 24;
             }
             break;
         }
@@ -867,8 +895,15 @@ void graphics_set_mode(const enum graphics_mode_t mode) {
     // it is floating point and the renderer runs in an interrupt.
     if (mode == COMPOSITE_160x200x16) build_composite_palette();
 
-    // Hercules is the only thing here wider than 640.
-    apply_timing((mode == HERC_720x348x2) ? &timing_720x480 : &timing_640x480);
+    /*
+     * Only a Hercules can be wider than 640, and only sometimes: the
+     * width is whatever the CRTC has been programmed for. 90 characters
+     * is the stock 720; Planet X3 asks for 80 and needs no retiming at
+     * all.
+     */
+    const bool wide = (mode == HERC_720x348x2 || mode == HERC_720x348x2_90) &&
+                      mc6845.r.h_displayed > 80;
+    apply_timing(wide ? &timing_720x480 : &timing_640x480);
 
     graphics_mode = mode;
 }
