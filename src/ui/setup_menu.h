@@ -41,13 +41,24 @@ typedef struct __attribute__((__packed__)) {
 } MenuItem;
 
 // Версия структуры настроек (увеличивать при изменении структуры)
-#define SETTINGS_VERSION 1
+#define SETTINGS_VERSION 2
 
 // Структура настроек проекта
 typedef struct {
     uint16_t version;        // Версия структуры настроек
     uint8_t tandy_enabled;  // 0 = NO, 1 = YES
     uint8_t cpu_freq_index; // 0 = 1MHz, 1 = 4.75MHz, 2 = 6MHz
+
+    /*
+     * Which monitor mode 6 is being watched on. 0 = RGB, 1 = composite.
+     *
+     * A setting rather than something inferred from the card, because on
+     * real hardware it is not a property of the card: the same 640x200x2
+     * output is black and white on an RGB monitor and sixteen artifact
+     * colours on a composite one. Software that relies on the artifacts
+     * has no way to say so.
+     */
+    uint8_t composite;
     char fda[256];           // Floppy #1 filename (увеличено для длинных путей)
     char fdb[256];           // Floppy #2 filename
     char hdd[256];           // HDD filename

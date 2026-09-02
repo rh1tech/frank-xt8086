@@ -439,7 +439,17 @@ bool handleScancode(const uint8_t ps2scancode) {
                     // Bit 1: Graphics/Text Select
                     if (unlikely(cga.port3D8 & 0b10000)) {
                         {
-                            videomode = CGA_640x200x2;
+                            /*
+                             * Mode 6 on a composite monitor is not black
+                             * and white. The pixel clock is four times the
+                             * NTSC subcarrier, so groups of four pixels
+                             * come out as colour, and a good deal of CGA
+                             * software was drawn expecting exactly that.
+                             * Which picture is right depends on what is
+                             * plugged in, so it is a setting.
+                             */
+                            videomode = settings.composite ? COMPOSITE_160x200x16
+                                                           : CGA_640x200x2;
                             graphics_set_bgcolor(0);
                             graphics_set_palette(0, 0);
                             graphics_set_palette(1, (cga.port3D8 & 4) ? cga_palette[cga.port3D9 & 0xF] : cga_palette[15]);
@@ -467,7 +477,9 @@ bool handleScancode(const uint8_t ps2scancode) {
                 if (unlikely(cga.port3DA_tandy /* == 0x20 */)) {
                     // printf("Tandy hack detected: %i\n", videomode);
                     // videomode = (cga.port3D8 & 0b10000) ? TGA_320x200x16 : TGA_160x200x16;
-                    videomode = videomode == CGA_640x200x2 ? TGA_320x200x16 : TGA_160x200x16;
+                    videomode = (videomode == CGA_640x200x2 ||
+                                 videomode == COMPOSITE_160x200x16)
+                                        ? TGA_320x200x16 : TGA_160x200x16;
                     // graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);

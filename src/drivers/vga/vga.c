@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include <hardware/dma.h>
 #include <hardware/irq.h>
 #include <hardware/pio.h>
@@ -95,6 +97,70 @@ static int dma_ctrl_channel;
 static int dma_data_channel;
 
 static uint16_t palette[256] __attribute__((aligned(4)));
+
+/*
+ * CGA composite artifact colour.
+ *
+ * One entry per four-pixel group, already replicated four times so a
+ * whole colour cell is a single 32-bit store.
+ *
+ * The colours are derived rather than tabulated. A CGA's 14.318 MHz pixel
+ * clock is exactly four times the 3.5795 MHz NTSC colour subcarrier, so
+ * four consecutive pixels span one full cycle and amount to sampling it
+ * at 0, 90, 180 and 270 degrees. Demodulating those four samples the way
+ * a television does gives the colour that television would have shown:
+ *
+ *   Y = (s0 + s1 + s2 + s3) / 4      luma, just the average
+ *   I = (s0 - s2) / 2                the 0/180 axis
+ *   Q = (s1 - s3) / 2                the 90/270 axis
+ *
+ * then the standard YIQ to RGB matrix. That is why 1010 and 0101 come out
+ * as opposite hues at the same brightness while 1100 and 0011 do not:
+ * they differ in phase, not in how many pixels are lit.
+ *
+ * COMPOSITE_HUE_DEG is the burst phase. On real hardware it depends on
+ * the card and the monitor's tint control, so there is no single correct
+ * value; this is the knob to turn if the colours come out rotated against
+ * software you know.
+ */
+#define COMPOSITE_HUE_DEG   0.0f
+#define COMPOSITE_SATURATION 1.5f
+
+static uint32_t composite_quad[16] __attribute__((aligned(4)));
+
+static void build_composite_palette(void) {
+    const float hue = COMPOSITE_HUE_DEG * (float)M_PI / 180.0f;
+    const float ch = cosf(hue), sh = sinf(hue);
+
+    for (int idx = 0; idx < 16; idx++) {
+        // Bit 3 is the leftmost pixel, and therefore phase 0.
+        const float s0 = (idx >> 3) & 1, s1 = (idx >> 2) & 1;
+        const float s2 = (idx >> 1) & 1, s3 = (idx >> 0) & 1;
+
+        const float Y  = (s0 + s1 + s2 + s3) * 0.25f;
+        const float i0 = (s0 - s2) * 0.5f;
+        const float q0 = (s1 - s3) * 0.5f;
+
+        const float I = (i0 * ch - q0 * sh) * COMPOSITE_SATURATION;
+        const float Q = (i0 * sh + q0 * ch) * COMPOSITE_SATURATION;
+
+        float rgb[3] = {
+            Y + 0.956f * I + 0.621f * Q,
+            Y - 0.272f * I - 0.647f * Q,
+            Y - 1.106f * I + 1.703f * Q,
+        };
+
+        uint8_t q[3];
+        for (int c = 0; c < 3; c++) {
+            float v = rgb[c] < 0.0f ? 0.0f : (rgb[c] > 1.0f ? 1.0f : rgb[c]);
+            // Six-bit ladder: two bits a channel, so 0..3.
+            q[c] = (uint8_t)(v * 3.0f + 0.5f);
+        }
+
+        const uint8_t byte = (uint8_t)(((q[0] << 4) | (q[1] << 2) | q[2]) & 0x3F) | 0xC0;
+        composite_quad[idx] = (uint32_t)byte * 0x01010101u;
+    }
+}
 // 2K text palette expanded for fast lookup: 256 * 4 entries
 static uint16_t textmode_palette_lut[256 * 4] __attribute__((aligned(4)));
 
@@ -375,6 +441,23 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
+        /*
+         * Same bytes as CGA_640x200x2 above, read four bits at a time
+         * instead of one. Eighty bytes a line is 160 colour cells, each
+         * four pixels wide, which fills the same 640.
+         */
+        case COMPOSITE_160x200x16: {
+            const uint8_t *__restrict cga_row =
+                    &VIDEORAM[(__fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
+            __builtin_prefetch(cga_row);
+
+            for (int x = 80; x--;) {
+                const uint8_t b = *cga_row++;
+                *scanline_output_32++ = composite_quad[b >> 4];
+                *scanline_output_32++ = composite_quad[b & 15];
+            }
+            break;
+        }
         case TGA_160x200x16: {
             const uint32_t *__restrict tga_row = (uint32_t *) &VIDEORAM[(__fast_mul(y >> 1, 80) + ((y & 1) << 13)) & 0x3FFF];
             __builtin_prefetch(tga_row);
@@ -451,6 +534,8 @@ void graphics_set_palette(const uint8_t index, const uint32_t color) {
 
 // -----------------------------------------------------------------------------
 void graphics_init() {
+    build_composite_palette();
+
     // --- initialize PIO ---
     // On RP2350B
     pio_set_gpio_base(PIO_VGA, 16);
@@ -580,5 +665,9 @@ void graphics_init() {
 
 // -----------------------------------------------------------------------------
 void graphics_set_mode(const enum graphics_mode_t mode) {
+    // Derived once per switch into composite rather than per scanline;
+    // it is floating point and the renderer runs in an interrupt.
+    if (mode == COMPOSITE_160x200x16) build_composite_palette();
+
     graphics_mode = mode;
 }
