@@ -343,6 +343,10 @@ bool handleScancode(const uint8_t ps2scancode) {
     printf("[boot] SETUP %s\n", wants_setup ? "requested" : "not requested");
     if (wants_setup) setup_menu();
 
+    // After SETUP, so a change made there takes effect on this boot
+    // rather than the next one.
+    audio_set_enabled(settings.sound);
+
     // Before core 1 releases the 8086, so the BIOS counts the right
     // figure: Hercules takes 0xB0000..0xB7FFF for its framebuffer.
     ram_limit = settings.hercules ? 0xB0000u : RAM_SIZE;

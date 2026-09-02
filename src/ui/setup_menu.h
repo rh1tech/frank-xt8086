@@ -50,7 +50,12 @@ typedef struct __attribute__((__packed__)) {
  * config, took 32K of memory, and pointed its framebuffer at the text
  * page. Every field after it was off by one as well.
  */
-#define SETTINGS_VERSION 3
+#define SETTINGS_VERSION 4
+
+// The oldest layout load_settings() will still accept. Fields added since
+// then sit at the end of the struct and keep their defaults, so growing
+// the settings no longer costs everyone their drive selections.
+#define SETTINGS_VERSION_MIN 3
 
 // Структура настроек проекта
 typedef struct {
@@ -91,6 +96,18 @@ typedef struct {
     char fda[256];           // Floppy #1 filename (увеличено для длинных путей)
     char fdb[256];           // Floppy #2 filename
     char hdd[256];           // HDD filename
+
+    /*
+     * Sound, 1 = on.
+     *
+     * New fields go here, at the end, and nowhere else: a file written by
+     * an older firmware is exactly this struct minus its tail, so
+     * everything before stays where it was and only the new field needs a
+     * default. Inserting one in the middle shifts every field after it,
+     * which is how `hercules` once took the first character of a drive
+     * path and switched itself on.
+     */
+    uint8_t sound;
 } settings_s;
 
 // settings.composite

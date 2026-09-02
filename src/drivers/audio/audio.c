@@ -40,6 +40,7 @@ static uint16_t buf[2][AUDIO_BLOCK];
 // Which buffer the DMA is *not* playing, and so is ours to refill.
 static volatile int  refill = -1;
 static volatile bool running;
+static volatile bool enabled = true;
 
 // Scratch for the OPL. 32-bit: EMU8950_LINEAR renders at that width.
 static int32_t opl_samples[AUDIO_BLOCK];
@@ -50,6 +51,8 @@ static volatile bool     spk_on     = false;
 
 // Square-wave phase, advanced per sample on core 0.
 static uint32_t spk_phase;
+
+void audio_set_enabled(const bool on) { enabled = on; }
 
 void audio_speaker_divisor(const uint16_t reload) { spk_reload = reload; }
 void audio_speaker_gate(const bool on)            { spk_on = on; }
@@ -151,6 +154,12 @@ void audio_init(void) {
 
 // Render one block into buf[which].
 static void fill(const int which) {
+    if (!enabled) {
+        // Idle level, not silence-by-stopping: see audio_set_enabled().
+        for (uint32_t i = 0; i < AUDIO_BLOCK; i++) buf[which][i] = PWM_MID;
+        return;
+    }
+
     const bool have_opl = adlib_render(opl_samples, AUDIO_BLOCK);
 
     // The speaker's half-period in samples. A reload of 0 means 65536 on a
@@ -192,7 +201,7 @@ void audio_task(void) {
 }
 
 void audio_beep(const uint32_t freq_hz, const uint32_t ms) {
-    if (!running || !freq_hz) return;
+    if (!running || !freq_hz || !enabled) return;
 
     // Drive the speaker model directly, then hand it back. This runs
     // before the 8086 exists, so there is nothing to conflict with.

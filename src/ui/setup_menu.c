@@ -5,6 +5,7 @@
 #include "state.h"
 #include "fslock.h"
 #include <string.h>
+#include <stddef.h>
 #include <stdio.h>
 
 #include "conkey.h"
@@ -41,6 +42,7 @@ settings_s settings = {
     .fda = "/XT/fdd0.img",
     .fdb = "",
     .hdd = "/XT/hdd0.img",
+    .sound = 1,
 };
 
 /* --------- simplified menu description --------- */
@@ -55,6 +57,7 @@ static const MenuItem menu_items[] = {
     {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
     {"Hercules",         ARRAY, &settings.hercules,       nullptr, 1, {"No", "Yes"}},
+    {"Sound",            ARRAY, &settings.sound,          nullptr, 1, {"Off", "On"}},
     {"Date and time",    ACTION, clock_text, nullptr, 0},
     {""},
     {"Drives",          .colors = {UI_YELLOW, UI_WIN_BG}},
@@ -165,7 +168,15 @@ bool save_settings(void) {
 bool load_settings(void) {
     FIL f;
     UINT br;
-    settings_s temp_settings;
+    /*
+     * Start from the built-in defaults.
+     *
+     * A file written by an older firmware is shorter than this struct, so
+     * f_read leaves the tail untouched -- and the tail is exactly the
+     * fields that file predates. Starting from the defaults means those
+     * come out right instead of holding whatever was on the stack.
+     */
+    settings_s temp_settings = settings;
 
     FS_LOCK();
     if (f_open(&f, CONFIG_FILE, FA_READ) != FR_OK) {
@@ -178,14 +189,16 @@ bool load_settings(void) {
     f_close(&f);
     FS_UNLOCK();
 
-    // Проверяем размер файла и версию структуры
-    if (br != sizeof(settings) || temp_settings.version != SETTINGS_VERSION) {
-        // Версия не совпадает или размер не тот - используем настройки по умолчанию
+    // Anything from SETTINGS_VERSION_MIN up is readable: the layout only
+    // ever grows at the end, so an older file is a prefix of this one.
+    if (temp_settings.version < SETTINGS_VERSION_MIN ||
+        temp_settings.version > SETTINGS_VERSION ||
+        br < offsetof(settings_s, sound)) {
         return false;
     }
 
-    // Версия совпадает - копируем настройки
     settings = temp_settings;
+    settings.version = SETTINGS_VERSION;   // rewritten in this layout next save
     return true;
 }
 

@@ -81,3 +81,14 @@ void audio_speaker_gate(bool on);
  * bring-up.
  */
 void audio_beep(uint32_t freq_hz, uint32_t ms);
+
+/*
+ * Silence, or not.
+ *
+ * Muting fills the blocks with the idle level rather than stopping the
+ * DMA. The carrier keeps running and the pin stays at mid-scale, so
+ * switching back on makes no click and there is no half-configured state
+ * to get wrong -- the speaker and the OPL go on being modelled, they are
+ * simply not listened to.
+ */
+void audio_set_enabled(bool on);
