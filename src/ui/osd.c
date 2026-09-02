@@ -87,9 +87,19 @@ static uint8_t osd_wait_key(void) {
         if (current_scancode) {
             const uint8_t sc = current_scancode;
             current_scancode = 0;
+
+            // E0 prefixes an extended key; the byte after it carries the
+            // meaning. Arrows and Delete all arrive this way from a modern
+            // keyboard, and passing the prefix on as if it were a key made
+            // every one of them do nothing.
+            if (sc == 0xE0u) continue;
+
+            // A key going up is not a keypress. Without this every action
+            // fired twice -- once on make, once on break.
+            if (sc & 0x80u) continue;
+
             return sc;
         }
-        // Break codes and modifiers arrive here too; the caller filters.
         tight_loop_contents();
     }
 }

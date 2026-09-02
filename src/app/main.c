@@ -32,6 +32,7 @@
 #include "mc146818.h"
 #include "adlib.h"
 #include "redirector.h"
+#include "fslock.h"
 #include "audio.h"
 
 #include "ff.h"
@@ -87,6 +88,13 @@ static bool sd_mounted;
  * reason. Together they are under a kilobyte.
  */
 void media_reload(void) {
+    /*
+     * Held across the whole function, not per call: this closes and
+     * reopens the very FIL objects core 1 reads the hard disk through, so
+     * a half-swapped set is not merely inconsistent, it is a use of a
+     * closed file from an interrupt.
+     */
+    FS_LOCK();
     if (fdd_media_mask & 1u) f_close(&floppy_files[0]);
     if (fdd_media_mask & 2u) f_close(&floppy_files[1]);
     if (ide.disk_image) f_close(ide.disk_image);
@@ -97,6 +105,7 @@ void media_reload(void) {
         // No card: drive A: still answers, from the built-in bootOS in
         // flash. See chipset/i8272.h.
         printf("[media] no card; drive A: is the built-in bootOS\n");
+        FS_UNLOCK();
         return;
     }
 
@@ -118,6 +127,8 @@ void media_reload(void) {
         else
             printf("[media] C: %s not found\n", settings.hdd);
     }
+
+    FS_UNLOCK();
 
     printf("[media] A:%s B:%s C:%s\n",
            (fdd_media_mask & 1) ? settings.fda : "-",
@@ -372,14 +383,20 @@ bool handleScancode(const uint8_t ps2scancode) {
                         break;
                     case DMA_SOURCE_MEM_WRITE: memcpy((void *) (channel->data_source + channel->data_offset), &RAM[dest_addr], size);
                         break;
-                    case DMA_SOURCE_FILE_READ:
+                    case DMA_SOURCE_FILE_READ: {
+                        FS_LOCK();
                         f_lseek(&floppy_files[channel->file_index], channel->data_offset);
                         f_read(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
+                        FS_UNLOCK();
+                    }
                         // printf("Read %x size %x offset %x \n", br, size, channel->data_offset);
                         break;
-                    case DMA_SOURCE_FILE_WRITE:
+                    case DMA_SOURCE_FILE_WRITE: {
+                        FS_LOCK();
                         f_lseek(&floppy_files[channel->file_index], channel->data_offset);
                         f_write(&floppy_files[channel->file_index], &RAM[dest_addr], size, &br);
+                        FS_UNLOCK();
+                    }
                         break;
                 }
 

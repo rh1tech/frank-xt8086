@@ -3,6 +3,7 @@
 #include "graphics.h"
 #include "ui_gfx.h"
 #include "state.h"
+#include "fslock.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -238,13 +239,21 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
             item_count++;
         }
 
-        if (f_opendir(&dir, current_path) != FR_OK) {
-            strcpy(current_path, "/");
-            f_opendir(&dir, current_path);
+        // Core 1 reads the hard-disk image from the bus interrupt while
+        // this runs, so every FatFs call here is fenced. See core/fslock.h.
+        {
+            FS_LOCK();
+            if (f_opendir(&dir, current_path) != FR_OK) {
+                strcpy(current_path, "/");
+                f_opendir(&dir, current_path);
+            }
+            FS_UNLOCK();
         }
 
         while (item_count < BROWSER_MAX_FILES) {
-            if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == 0) break;
+            FRESULT rd;
+            { FS_LOCK(); rd = f_readdir(&dir, &fno); FS_UNLOCK(); }
+            if (rd != FR_OK || fno.fname[0] == 0) break;
             if (fno.fname[0] == '.') continue;
             const bool isdir = (fno.fattrib & AM_DIR) != 0;
             if (!isdir && filter) {
@@ -258,7 +267,7 @@ bool file_browser(char *selected_path, const uint8_t out_len, const char *filter
             files[item_count].is_dir = isdir;
             item_count++;
         }
-        f_closedir(&dir);
+        { FS_LOCK(); f_closedir(&dir); FS_UNLOCK(); }
 
         if (cur >= item_count) cur = scroll = 0;
         if (scroll > cur) scroll = cur;

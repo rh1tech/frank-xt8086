@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fslock.h"
+
 // Отладочный вывод HDD
 //#define DEBUG_HDD
 #if defined(DEBUG_HDD)
@@ -94,19 +96,29 @@ static void increment_lba_regs() {
 // Функция чтения сектора с диска в секторный буфер; возвращает 0 при успехе или код ошибки
 static int load_sector_from_disk(const uint32_t LBA) {
     if (!ide.disk_image) return -1;
-    if (f_lseek(ide.disk_image, (FSIZE_t)LBA * 512) != FR_OK) return -2;
+    // This runs on core 1 inside the bus interrupt; core 0 browses the
+    // same filesystem from the drive menu. See core/fslock.h.
+    FS_LOCK();
+    int rc = 0;
     UINT bytes_read = 0;
-    if (f_read(ide.disk_image, ide.sector_buffer, 512, &bytes_read) != FR_OK) return -3;
-    if (bytes_read < 512) memset(ide.sector_buffer + bytes_read, 0, 512 - bytes_read);
-    return 0;
+    if (f_lseek(ide.disk_image, (FSIZE_t)LBA * 512) != FR_OK)               rc = -2;
+    else if (f_read(ide.disk_image, ide.sector_buffer, 512, &bytes_read) != FR_OK) rc = -3;
+    else if (bytes_read < 512) memset(ide.sector_buffer + bytes_read, 0, 512 - bytes_read);
+    FS_UNLOCK();
+    return rc;
 }
 
 // Аналогично — записать буфер на диск (используется при завершении записи одного сектора)
 static int write_sector_to_disk(const uint32_t LBA) {
     if (!ide.disk_image) return -1;
-    if (f_lseek(ide.disk_image, (FSIZE_t)LBA * 512) != FR_OK) return -2;
+    FS_LOCK();
+    int rc = 0;
     UINT bytes_written = 0;
-    if (f_write(ide.disk_image, ide.sector_buffer, 512, &bytes_written) != FR_OK || bytes_written != 512) return -3;
+    if (f_lseek(ide.disk_image, (FSIZE_t)LBA * 512) != FR_OK) rc = -2;
+    else if (f_write(ide.disk_image, ide.sector_buffer, 512, &bytes_written) != FR_OK
+             || bytes_written != 512) rc = -3;
+    FS_UNLOCK();
+    if (rc) return rc;
     // if (f_sync(ide.disk_image) != FR_OK) return -4; // optional
     return 0;
 }

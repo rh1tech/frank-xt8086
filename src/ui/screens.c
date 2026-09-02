@@ -42,13 +42,32 @@ extern uint8_t current_scancode;   // set by the USB HID keyboard handler
 typedef enum { KEY_NONE, KEY_OTHER, KEY_DEL } key_t;
 
 #define XT_SCANCODE_DEL 0x53u
+#define XT_SCANCODE_EXT 0xE0u
 
 static key_t poll_key(void) {
+    // The Delete key on anything newer than an original XT keyboard is the
+    // two-byte sequence E0 53, and the HID driver passes both bytes
+    // through. Treating E0 as "some other key" -- which is what this did
+    // -- meant DEL dismissed the splash as an ordinary keypress and could
+    // never reach SETUP.
+    static bool extended;
+
     keyboard_tick();
     if (current_scancode) {
         const uint8_t sc = current_scancode;
         current_scancode = 0;
-        return sc == XT_SCANCODE_DEL ? KEY_DEL : KEY_OTHER;
+
+        if (sc == XT_SCANCODE_EXT) { extended = true; return KEY_NONE; }
+
+        const bool was_ext = extended;
+        extended = false;
+
+        // Break codes have bit 7 set; a key going up is not a keypress.
+        if (sc & 0x80u) return KEY_NONE;
+
+        if (sc == XT_SCANCODE_DEL) return KEY_DEL;   // keypad Del, or E0 53
+        (void)was_ext;
+        return KEY_OTHER;
     }
 
     const int c = getchar_timeout_us(0);
