@@ -67,6 +67,12 @@ BDA_SEG         equ 0040h
 ; goes there because this code runs from ROM and has nowhere of its own to
 ; put it.
 BDA_OLD_INT10   equ 00F0h
+
+; The firmware's video-mode port. Not a register any real machine has:
+; setting a VGA mode means programming a sequencer, a graphics controller,
+; an attribute controller and a CRTC, and there is neither a card here nor
+; a BIOS that knows how to drive one. So the mode is named directly.
+FW_VIDEO        equ 03DCh
 BDA_TICKS       equ 006Ch               ; dword, ticks since midnight
 BDA_ROLLOVER    equ 0070h               ; byte, set when the count wrapped
 
@@ -211,9 +217,67 @@ init:
 int10:
         cmp     ah, 00h
         jne     .chain
+        cmp     al, 13h
+        je      .mode13
+
+        ; Any other mode set gives the 0xA0000 window back, so a program
+        ; that leaves mode 13h stops being a VGA.
+        push    ax
+        push    dx
+        mov     dx, FW_VIDEO
+        xor     al, al
+        out     dx, al
+        pop     dx
+        pop     ax
+
         cmp     al, 07h
         jne     .chain
-        mov     al, 03h                 ; the one substitution
+        mov     al, 03h                 ; MDA text on a machine with one display
+        jmp     short .chain
+
+; ---------------------------------------------------------------------------
+; Mode 13h, 320x200 in 256 colours.
+;
+; Handled here rather than chained, because GLaBIOS is an XT BIOS and has
+; never heard of it. The firmware is told which mode to provide, the BIOS
+; data area is filled in so that anything asking what mode this is gets a
+; straight answer, and the framebuffer is cleared the way a real mode set
+; would leave it.
+; ---------------------------------------------------------------------------
+.mode13:
+        push    ax
+        push    cx
+        push    di
+        push    es
+        push    dx
+
+        mov     dx, FW_VIDEO
+        mov     al, 13h
+        out     dx, al
+
+        mov     ax, BDA_SEG
+        mov     es, ax
+        mov     byte [es:0049h], 13h    ; current mode
+        mov     word [es:004Ah], 40     ; text columns, such as they are
+        mov     word [es:004Ch], 0      ; page size
+        mov     word [es:004Eh], 0      ; page offset
+        mov     byte [es:0062h], 0      ; active page
+        mov     byte [es:0084h], 24     ; rows - 1
+
+        mov     ax, 0A000h
+        mov     es, ax
+        xor     di, di
+        xor     ax, ax
+        mov     cx, 32000               ; 64,000 bytes, a word at a time
+        cld
+        rep     stosw
+
+        pop     dx
+        pop     es
+        pop     di
+        pop     cx
+        pop     ax
+        iret
 
 .chain:
         ; Hand over to the original with every register as the caller left

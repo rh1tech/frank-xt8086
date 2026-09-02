@@ -193,6 +193,21 @@ extern mc6845_s mc6845_mda;   // the MDA/Hercules card at 0x3Bx
      * Hercules graphics has to enable it deliberately, which makes it a
      * reliable thing to key the mode off.
      */
+    /*
+     * The VGA colour DAC at 0x3C8/0x3C9, and the mode the option ROM
+     * asked for through 0x3DC.
+     *
+     * A real VGA is set up through a dozen registers across four port
+     * groups. There is no real VGA here, and no BIOS that knows how to
+     * drive one, so the option ROM names the mode directly and the
+     * firmware provides it. The DAC is real enough to be worth
+     * implementing properly: software writes palettes to it constantly.
+     */
+    uint8_t dac_index;
+    uint8_t dac_component;
+    uint8_t dac_rgb[3];
+    uint8_t vga_mode_request;
+
     uint8_t herc_mode;
     uint8_t herc_config;
 

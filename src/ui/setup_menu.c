@@ -43,6 +43,7 @@ settings_s settings = {
     .fdb = "",
     .hdd = "/XT/hdd0.img",
     .sound = 1,
+    .vga = 0,
 };
 
 /* --------- simplified menu description --------- */
@@ -57,6 +58,7 @@ static const MenuItem menu_items[] = {
     {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
     {"Hercules",         ARRAY, &settings.hercules,       nullptr, 1, {"No", "Yes"}},
+    {"VGA graphics",     ARRAY, &settings.vga,            nullptr, 1, {"No", "Yes"}},
     {"Sound",            ARRAY, &settings.sound,          nullptr, 1, {"Off", "On"}},
     {"Date and time",    ACTION, clock_text, nullptr, 0},
     {""},

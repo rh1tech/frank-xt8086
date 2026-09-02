@@ -346,7 +346,13 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     // Before core 1 releases the 8086, so the BIOS counts the right
     // figure: Hercules takes 0xB0000..0xB7FFF for its framebuffer.
-    ram_limit = settings.hercules ? 0xB0000u : RAM_SIZE;
+    /*
+     * VGA takes precedence: its window at 0xA0000 is below Hercules', so
+     * claiming it covers both. That leaves the 640K a standard PC has.
+     */
+    ram_limit = settings.vga       ? 0xA0000u
+              : settings.hercules  ? 0xB0000u
+                                   : RAM_SIZE;
 
     media_reload();
 
@@ -458,6 +464,23 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * would take 32K away from a guest that had already been
                  * told it had them.
                  */
+                /*
+                 * A VGA mode, if the option ROM asked for one, outranks
+                 * everything below: nothing about the CGA registers
+                 * describes it, and the card the guest thinks it is
+                 * driving is not the one the rest of this decides.
+                 */
+                if (settings.vga && cga.vga_mode_request == 0x13) {
+                    videomode = VGA_320x200x256;
+                    if (videomode != old_videomode) {
+                        printf("Videomode %i\n", videomode);
+                        graphics_set_mode(videomode);
+                        old_videomode = videomode;
+                    }
+                    cga.updated = false;
+                    continue;
+                }
+
                 const bool herc_wanted = cga.herc_selected &&
                                          (cga.herc_config & 1u) &&
                                          (cga.herc_mode & 0b10);

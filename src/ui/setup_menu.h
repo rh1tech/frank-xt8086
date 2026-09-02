@@ -50,7 +50,7 @@ typedef struct __attribute__((__packed__)) {
  * config, took 32K of memory, and pointed its framebuffer at the text
  * page. Every field after it was off by one as well.
  */
-#define SETTINGS_VERSION 4
+#define SETTINGS_VERSION 5
 
 // The oldest layout load_settings() will still accept. Fields added since
 // then sit at the end of the struct and keep their defaults, so growing
@@ -108,6 +108,16 @@ typedef struct {
      * path and switched itself on.
      */
     uint8_t sound;
+
+    /*
+     * VGA graphics, 1 = on.
+     *
+     * Like Hercules, this is a boot-time choice because it costs memory:
+     * mode 13h's framebuffer is at 0xA0000, so the ceiling drops there
+     * and the guest is left with the 640K a standard PC has rather than
+     * the 736K this machine offers when nothing needs the window.
+     */
+    uint8_t vga;
 } settings_s;
 
 // settings.composite

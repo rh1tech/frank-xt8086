@@ -290,6 +290,48 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
          * Zero at reset and left alone by anything that is not a Tandy,
          * so a CGA guest sees the flat mapping it always had.
          */
+        /*
+         * VGA colour DAC. 0x3C8 selects an entry, 0x3C9 takes red, green
+         * and blue in turn and steps to the next entry after blue.
+         *
+         * A real DAC keeps six bits a channel. The ladder here has two, so
+         * each is shifted down four -- 262,144 colours become 64, and
+         * software that fades a palette in and out still fades, in coarser
+         * steps.
+         */
+        case 0x3C8: {
+            cga.dac_index = data;
+            cga.dac_component = 0;
+            return;
+        }
+        case 0x3C9: {
+            cga.dac_rgb[cga.dac_component] = data & 0x3Fu;
+            if (++cga.dac_component >= 3) {
+                cga.dac_component = 0;
+                graphics_set_palette(cga.dac_index,
+                                     (uint32_t)(cga.dac_rgb[0] << 2) << 16 |
+                                     (uint32_t)(cga.dac_rgb[1] << 2) << 8  |
+                                     (uint32_t)(cga.dac_rgb[2] << 2));
+                cga.dac_index++;
+            }
+            return;
+        }
+
+        /*
+         * Which video mode the option ROM wants.
+         *
+         * Not a register any real machine has. Setting a VGA mode means
+         * programming a sequencer, a graphics controller, an attribute
+         * controller and a CRTC, and neither the card nor a BIOS that
+         * knows how to drive one exists here -- so the ROM names the BIOS
+         * mode number and the firmware provides it. See tools/rom/xtrom.asm.
+         */
+        case 0x3DC: {
+            cga.vga_mode_request = data;
+            cga.updated = true;
+            return;
+        }
+
         // Hercules mode register: bit 1 selects graphics, bit 3 enables
         // video, bit 7 picks the second 32K page.
         case 0x3B8: {

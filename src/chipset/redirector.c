@@ -8,10 +8,12 @@
 
 #include "redirector.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "ff.h"
+#include "fslock.h"
 #include "state.h"
 
 // ---------------------------------------------------------------------------
@@ -202,6 +204,257 @@ static void fn_install_check(void) {
     ok();
 }
 
+
+// ---------------------------------------------------------------------------
+// The Swappable Data Area
+// ---------------------------------------------------------------------------
+//
+// Offsets found by dumping the SDA on this machine rather than assumed:
+// the canonicalised search path turned up at +0x9E, which is the DOS 4+
+// layout. DR-DOS 8.1 follows it. DOS 3 put the same field at +0x92, so a
+// guess either way would have been wrong half the time.
+#define SDA_FN1     0x09Eu   // canonicalised name, ASCIIZ, e.g. "H:\\SUB\\*.*"
+#define SDA_SDB     0x19Eu   // search data block, 21 bytes, our search state
+#define SDA_DIRENT  0x1B3u   // found file, a 32-byte directory entry
+
+static void guest_poke_lin(const uint32_t pa, const uint8_t v) {
+    if (pa < RAM_SIZE) RAM[pa] = v;
+}
+
+static void guest_poke_lin16(const uint32_t pa, const uint16_t v) {
+    guest_poke_lin(pa, (uint8_t)v);
+    guest_poke_lin(pa + 1, (uint8_t)(v >> 8));
+}
+
+static uint16_t guest_peek_lin16(const uint32_t pa) {
+    return (uint16_t)guest_peek_lin(pa) | (uint16_t)guest_peek_lin(pa + 1) << 8;
+}
+
+// ---------------------------------------------------------------------------
+// Names
+// ---------------------------------------------------------------------------
+
+/*
+ * Turn a name into the eleven-byte form a directory entry uses: eight of
+ * name and three of extension, space padded, no dot.
+ */
+static void to_fcb(const char *name, char out[11]) {
+    memset(out, ' ', 11);
+    int i = 0;
+    while (*name && *name != '.' && i < 8) out[i++] = (char)toupper((unsigned char)*name++);
+    while (*name && *name != '.') name++;
+    if (*name == '.') {
+        name++;
+        for (i = 0; *name && i < 3; i++) out[8 + i] = (char)toupper((unsigned char)*name++);
+    }
+}
+
+/*
+ * Does an eleven-byte name match an eleven-byte pattern?
+ *
+ * DOS has already expanded '*' into runs of '?' by the time a redirector
+ * sees the template, so '?' is the only wildcard left to honour.
+ */
+static bool fcb_match(const char pat[11], const char name[11]) {
+    for (int i = 0; i < 11; i++)
+        if (pat[i] != '?' && pat[i] != name[i]) return false;
+    return true;
+}
+
+/*
+ * Split the canonicalised path into the directory to open and the
+ * eleven-byte pattern to match inside it.
+ *
+ * "H:\SUB\FILE????.???" becomes "/XT/SUB" and "FILE????   ".
+ */
+static void split_template(const uint32_t sda, char *dir, const size_t dirsz,
+                           char pattern[11]) {
+    char path[128];
+    size_t n = 0;
+    for (; n < sizeof path - 1; n++) {
+        const uint8_t c = guest_peek_lin(sda + SDA_FN1 + n);
+        if (!c) break;
+        path[n] = (char)c;
+    }
+    path[n] = 0;
+
+    // Past "H:", and treat both separators the same.
+    const char *p = path;
+    if (p[0] && p[1] == ':') p += 2;
+    while (*p == '\\' || *p == '/') p++;
+
+    const char *last = p;
+    for (const char *q = p; *q; q++)
+        if (*q == '\\' || *q == '/') last = q + 1;
+
+    snprintf(dir, dirsz, "%s", REDIR_ROOT);
+    if (last > p) {
+        const size_t sub = (size_t)(last - p) - 1;   // without the separator
+        const size_t at  = strlen(dir);
+        if (at + 1 + sub < dirsz) {
+            dir[at] = '/';
+            for (size_t i = 0; i < sub; i++)
+                dir[at + 1 + i] = (p[i] == '\\') ? '/' : p[i];
+            dir[at + 1 + sub] = 0;
+        }
+    }
+    to_fcb(last, pattern);
+}
+
+/*
+ * Fill in the directory entry DOS will copy into the caller's DTA, and
+ * remember where to carry on.
+ *
+ * The search state lives in the guest's own SDB rather than here, which
+ * is what makes find-next work across any number of interleaved searches:
+ * DOS hands the block back each time.
+ */
+static void publish_entry(const uint32_t sda, const FILINFO *fno,
+                          const uint16_t next_index) {
+    char fcb[11];
+    to_fcb(fno->altname[0] ? fno->altname : fno->fname, fcb);
+
+    for (int i = 0; i < 11; i++) guest_poke_lin(sda + SDA_DIRENT + i, (uint8_t)fcb[i]);
+    guest_poke_lin(sda + SDA_DIRENT + 11, (uint8_t)fno->fattrib);
+    for (int i = 12; i < 22; i++) guest_poke_lin(sda + SDA_DIRENT + i, 0);
+    guest_poke_lin16(sda + SDA_DIRENT + 22, fno->ftime);
+    guest_poke_lin16(sda + SDA_DIRENT + 24, fno->fdate);
+    guest_poke_lin16(sda + SDA_DIRENT + 26, 0);          // start cluster: none
+    guest_poke_lin16(sda + SDA_DIRENT + 28, (uint16_t)(fno->fsize & 0xFFFFu));
+    guest_poke_lin16(sda + SDA_DIRENT + 30, (uint16_t)(fno->fsize >> 16));
+
+    printf("[redir] found '%.11s' attr %02X size %lu\n",
+           fcb, fno->fattrib, (unsigned long)fno->fsize);
+    (void)next_index;
+}
+
+/*
+ * One step of a directory search, from `index` onwards.
+ *
+ * Reopening the directory and skipping to the index each time, rather
+ * than holding a DIR open between calls: DOS may run any number of
+ * searches at once and abandon most of them without telling us, so
+ * keeping state here would mean leaking it. Directories are small and the
+ * card is fast.
+ */
+/*
+ * Where the current search has got to.
+ *
+ * DR-DOS does not keep its search data block where the MS-DOS layout says
+ * -- SDA+0x19E holds its own pointers, and a find-next reading an index
+ * from there gets nonsense and stops after one entry. The template is at
+ * SDA+0x9E in both, though, and DOS hands the same one back on every
+ * find-next, so the position can be kept here and matched against it.
+ *
+ * One search at a time. DIR does exactly one, and a second starting
+ * simply resets the first, which is better than reading a number out of a
+ * structure whose shape is not known.
+ */
+static char     search_dir[160];
+static char     search_pattern[11];
+static uint16_t search_index;
+static uint8_t  search_attr;
+
+/*
+ * Does this entry belong in a search for these attributes?
+ *
+ * CX carries the mask, and DIR uses it three times over: once for the
+ * volume label alone, then for directories, then for ordinary files.
+ * Ignoring it meant the first file on the card was handed back as the
+ * volume label, which is what put a line of nonsense at the top of the
+ * listing.
+ *
+ * Read-only and archive never restrict a search; the other three bits
+ * each have to be asked for.
+ */
+static bool attr_wanted(const uint8_t fattrib, const uint8_t search) {
+    // No volume label on this drive: it is a directory on a card, not a
+    // volume of its own.
+    if (search & 0x08u) return false;   // 0x08 = volume label
+
+    if ((fattrib & AM_DIR) && !(search & AM_DIR)) return false;
+    if ((fattrib & AM_HID) && !(search & AM_HID)) return false;
+    if ((fattrib & AM_SYS) && !(search & AM_SYS)) return false;
+    return true;
+}
+
+static bool search_step(const uint32_t sda, uint16_t index) {
+    char dir[160], pattern[11];
+    split_template(sda, dir, sizeof dir, pattern);
+
+    DIR d;
+    FS_LOCK();
+    FRESULT rc = f_opendir(&d, dir);
+    FS_UNLOCK();
+    if (rc != FR_OK) return false;
+
+    bool found = false;
+    uint16_t seen = 0;
+    for (;;) {
+        FILINFO fno;
+        FS_LOCK();
+        rc = f_readdir(&d, &fno);
+        FS_UNLOCK();
+        if (rc != FR_OK || !fno.fname[0]) break;
+
+        if (!attr_wanted(fno.fattrib, search_attr)) continue;
+
+        char fcb[11];
+        to_fcb(fno.altname[0] ? fno.altname : fno.fname, fcb);
+        if (!fcb_match(pattern, fcb)) continue;
+
+        if (seen++ < index) continue;
+
+        publish_entry(sda, &fno, index + 1);
+        found = true;
+        break;
+    }
+
+    FS_LOCK();
+    f_closedir(&d);
+    FS_UNLOCK();
+    return found;
+}
+
+#define DOS_NO_MORE_FILES 0x12u
+
+static void fn_find_first(void) {
+    if (!sda_addr) { decline(); return; }
+
+    // The drive byte with bit 7 set is how DOS knows the block belongs to
+    // a redirector rather than to its own directory code.
+    guest_poke_lin(sda_addr + SDA_SDB, 0x80u | (REDIR_DRIVE - 'A' + 1));
+    char dir[160], pattern[11];
+    split_template(sda_addr, dir, sizeof dir, pattern);
+    for (int i = 0; i < 11; i++)
+        guest_poke_lin(sda_addr + SDA_SDB + 1 + i, (uint8_t)pattern[i]);
+    guest_poke_lin(sda_addr + SDA_SDB + 12, 0x16u);   // attributes searched
+
+    split_template(sda_addr, search_dir, sizeof search_dir, search_pattern);
+    search_index = 0;
+    search_attr  = (uint8_t)regs.cx;
+
+    if (search_step(sda_addr, 0)) { search_index = 1; ok(); }
+    else fail(DOS_NO_MORE_FILES);
+}
+
+static void fn_find_next(void) {
+    if (!sda_addr) { decline(); return; }
+
+    char dir[160], pattern[11];
+    split_template(sda_addr, dir, sizeof dir, pattern);
+
+    // A different search than the one in progress starts from the top.
+    if (strcmp(dir, search_dir) != 0 || memcmp(pattern, search_pattern, 11) != 0) {
+        memcpy(search_dir, dir, sizeof search_dir);
+        memcpy(search_pattern, pattern, 11);
+        search_index = 0;
+    }
+
+    if (search_step(sda_addr, search_index)) { search_index++; ok(); }
+    else fail(DOS_NO_MORE_FILES);
+}
+
 void redirector_task(void) {
     if (!pending) return;
     pending = false;
@@ -215,6 +468,8 @@ void redirector_task(void) {
     switch (fn) {
         case 0x00: fn_install_check(); break;
         case 0x0C: fn_disk_info();     break;
+        case 0x1B: fn_find_first();    break;
+        case 0x1C: fn_find_next();     break;
 
         default:
             /*

@@ -665,6 +665,26 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
+        /*
+         * Mode 13h. One byte a pixel, 320 across, no interleave and no
+         * planes -- the easiest memory layout of any mode here.
+         *
+         * Each source pixel becomes two on screen, which is what the
+         * palette entries already are: the colour byte is held in both
+         * halves of a 16-bit word, so one entry is one doubled pixel and
+         * two of them fill a word.
+         */
+        case VGA_320x200x256: {
+            const uint8_t *__restrict row = &VIDEORAM[VGA_VRAM_BASE + __fast_mul(y, 320)];
+            __builtin_prefetch(row);
+
+            for (int x = 160; x--;) {
+                const uint32_t a = palette[*row++];
+                const uint32_t b = palette[*row++];
+                *scanline_output_32++ = a | (b << 16);
+            }
+            break;
+        }
         case TGA_640x200x16: {
             const uint8_t *__restrict tga_row = &VIDEORAM[
                     (cga.tandy_crt_base + mc6845.vram_offset +
@@ -911,10 +931,42 @@ static void apply_timing(const vga_timing_t *nt) {
     dma_start_channel_mask(1u << dma_data_channel);
 }
 
+/*
+ * The palette a VGA comes up with in mode 13h.
+ *
+ * Software usually replaces it -- fading one in is half of what the DAC
+ * gets used for -- but something that assumes the default and draws
+ * before setting one would otherwise get a screen of black. The standard
+ * layout is sixteen CGA colours, sixteen greys, then a large colour
+ * block; this approximates the third part with an RGB cube, which on a
+ * ladder with two bits a channel is as much as can be told apart anyway.
+ */
+static void build_vga_default_palette(void) {
+    for (int i = 0; i < 16; i++) graphics_set_palette(i, cga_palette[i]);
+
+    for (int i = 0; i < 16; i++) {
+        const uint32_t v = (uint32_t)(i * 17);
+        graphics_set_palette(16 + i, v << 16 | v << 8 | v);
+    }
+
+    // 6 * 6 * 6 = 216 entries from 32, and the last eight left black as
+    // the real default leaves them.
+    int idx = 32;
+    for (int r = 0; r < 6; r++)
+        for (int g = 0; g < 6; g++)
+            for (int b = 0; b < 6; b++)
+                graphics_set_palette(idx++, (uint32_t)(r * 51) << 16 |
+                                            (uint32_t)(g * 51) << 8  |
+                                            (uint32_t)(b * 51));
+    while (idx < 256) graphics_set_palette(idx++, 0);
+}
+
 void graphics_set_mode(const enum graphics_mode_t mode) {
     // Derived once per switch into composite rather than per scanline;
     // it is floating point and the renderer runs in an interrupt.
     if (mode == COMPOSITE_160x200x16) build_composite_palette();
+    if (mode == VGA_320x200x256 && graphics_mode != VGA_320x200x256)
+        build_vga_default_palette();
 
     /*
      * Only a Hercules can be wider than 640, and only sometimes: the

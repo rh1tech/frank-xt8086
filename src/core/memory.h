@@ -58,6 +58,11 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
         return *(uint16_t *)&VIDEORAM[HERC_VRAM_BASE + (address - 0xB0000)];
     }
 
+    // Likewise for VGA: mode 13h's 64K at 0xA0000.
+    if ((address - 0xA0000) < 0x10000) {
+        return *(uint16_t *)&VIDEORAM[VGA_VRAM_BASE + (address - 0xA0000)];
+    }
+
     if ((address - 0xC8000) < 8192) {
         return *(uint16_t *)&IDE[address - 0xC8000];
     }
@@ -108,6 +113,12 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
     // Only reachable once the ceiling has been lowered for Hercules.
     if ((address - 0xB0000) < 0x8000) {
         write_to(VIDEORAM, HERC_VRAM_BASE + (address - 0xB0000), data, bhe);
+        return;
+    }
+
+    // Likewise for VGA: mode 13h's 64K at 0xA0000.
+    if ((address - 0xA0000) < 0x10000) {
+        write_to(VIDEORAM, VGA_VRAM_BASE + (address - 0xA0000), data, bhe);
         return;
     }
 
