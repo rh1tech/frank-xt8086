@@ -101,7 +101,11 @@ cleanup:
 
 % c-sdk {
 
-void i8086_bus_program_init(PIO pio, uint sm, uint offset)
+// static inline, which is what a pio.h helper is meant to be: the header
+// is generated and gets included by every translation unit that touches
+// the bus, and an external definition makes the second one a duplicate
+// symbol at link time.
+static inline void i8086_bus_program_init(PIO pio, uint sm, uint offset)
 {
     pio_sm_config cfg = i8086_bus_program_get_default_config(offset);
 

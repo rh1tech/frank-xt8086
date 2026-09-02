@@ -14,10 +14,11 @@ own licence on the boot screen.
 | `ide_xt.bin` | XTIDE Universal BIOS, the hard-disk option ROM at `0xC8000` | XTIDE project | GPL-2.0 |
 | `os.img` | bootOS, a 512-byte operating system in one boot sector | Óscar Toledo G. | MIT |
 
-`os.img` is a fallback: it is what boots when SETUP has no floppy or hard
-disk image selected, so a board with an empty microSD still reaches
-something you can type at. The real boot media are `.img` files on the
-card, chosen in SETUP — see `src/ui/setup_menu.c`.
+`os.img` is the fallback boot medium: drive A: falls back to it when no
+floppy image is open, so a board with no microSD — or one with nothing
+selected in SETUP — still reaches something you can type at rather than
+sitting at "Boot sector not found". The normal boot media are `.img`
+files on the card, chosen in SETUP; see `src/ui/setup_menu.c`.
 
 ## Replacing one
 

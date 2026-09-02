@@ -145,7 +145,7 @@ endif()
 set(FAMILY rp2350)
 set(BOARD pico_sdk)
 
-target_include_directories(frank-xt8086 PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${FW_ROOT})
+target_include_directories(frank-xt8086 PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${FW_ROOT} ${SRC_ROOT}/ui)
 
 target_link_libraries(frank-xt8086 PRIVATE
         xt8086_core

@@ -14,6 +14,8 @@ add_library(xt8086_ui INTERFACE)
 
 target_sources(xt8086_ui INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/setup_menu.c
+        ${CMAKE_CURRENT_LIST_DIR}/ui_gfx.c
+        ${CMAKE_CURRENT_LIST_DIR}/screens.c
 )
 
 target_include_directories(xt8086_ui INTERFACE ${CMAKE_CURRENT_LIST_DIR})

@@ -86,10 +86,6 @@ static inline void menu_move(uint8_t *current, const int direction) {
  */
 #define SETUP_POLL_US 16667u   /* one frame */
 
-/* How long SETUP waits for a human before booting on its own. Long enough
- * to catch, short enough that a headless board is not visibly stuck. */
-#define SETUP_AUTOBOOT_MS 4000u
-
 static uint8_t wait_scancode_timeout(uint32_t timeout_ms) {
     const absolute_time_t deadline = (timeout_ms > 0)
         ? make_timeout_time_ms(timeout_ms)
@@ -360,36 +356,16 @@ void setup_menu(void) {
                 draw_menu_item(&menu_items[i], y++, (i == current));
             }
 
-            // SETUP is a stop, not a destination: a board with nothing
-            // plugged into it should still reach the BIOS. The prototype
-            // only auto-booted in its serial-console build, which meant a
-            // release image on a board with no keyboard sat on this menu
-            // for ever. Unconditional now, and announced, because a boot
-            // that continues on its own has to say that it will.
-            if (first_input) {
-                char hint[64];
-                snprintf(hint, sizeof(hint),
-                         "[autoboot in %us -- press any key to stay in SETUP]",
-                         SETUP_AUTOBOOT_MS / 1000u);
-                draw_text(hint, 2, TEXTMODE_ROWS - 2, 14, 1);
-            }
             redraw = false;
         }
 
-        uint8_t scancode;
-        if (first_input) {
-            scancode = wait_scancode_timeout(SETUP_AUTOBOOT_MS);
-            first_input = false;
-            if (scancode == 0) {
-                // Nobody is here. Take the stored settings and boot.
-                save_settings();
-                running = false;
-                break;
-            }
-            redraw = true;  // repaint to clear the autoboot hint
-        } else {
-            scancode = wait_scancode();
-        }
+        // No timeout any more. Reaching SETUP at all now takes a
+        // deliberate keypress on the splash, so an operator who is here is
+        // here on purpose and booting out from under them is wrong. The
+        // "is anyone watching" question is answered once, earlier, in
+        // main().
+        (void)first_input;
+        const uint8_t scancode = wait_scancode();
 
         const MenuItem *mi = &menu_items[current];
         if (scancode == 0x48) {

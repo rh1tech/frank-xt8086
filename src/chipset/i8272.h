@@ -12,6 +12,20 @@
 #endif
 
 extern uint8_t FLOPPY[];
+extern const uint32_t _sizeof_FLOPPY;
+
+/*
+ * Which drives have a real image open on the SD card, bit per drive.
+ * Owned by main(), which is what opens the files.
+ *
+ * Drive A: with no file falls back to the built-in bootOS image welded in
+ * as FLOPPY[] — one sector, but a bootable one, so a board with no card
+ * reaches a prompt instead of GLaBIOS reporting no boot sector. The FDC
+ * only ever read from the SD file before, and passed &FLOPPY to a
+ * DMA_SOURCE_FILE_READ that ignores the pointer, so the built-in image
+ * was compiled in and unreachable.
+ */
+extern uint8_t fdd_media_mask;
 extern i8272_s i8272;
 
 #define FDD_CYLINDERS 80
@@ -169,7 +183,14 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, 0x01, &FLOPPY, offset, drive, 6);
+                        if (fdd_media_mask & (1u << drive)) {
+                            dma_start_transfer(2, DMA_SOURCE_FILE_READ, &FLOPPY, offset, drive, 6);
+                        } else if (drive == 0 && offset < _sizeof_FLOPPY) {
+                            // The built-in image, straight out of flash.
+                            dma_start_transfer(2, DMA_SOURCE_MEM_READ, FLOPPY, offset, drive, 6);
+                        } else {
+                            i8272_irq();   // no media: let the BIOS time out
+                        }
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();
@@ -247,7 +268,14 @@ __force_inline static void i8272_writeport(const uint16_t port_number, const uin
                         // IRQ6 будет сгенерирован автоматически при завершении передачи
                         // const uint32_t size = endOfTrack * FDD_SECTOR_SIZE;
                         const uint32_t offset = ((cylinder * FDD_HEADS + head) * FDD_SECTORS_PER_TRACK + (sector - 1)) * FDD_SECTOR_SIZE;
-                        dma_start_transfer(2, 0x11, &FLOPPY, offset, drive, 6);
+                        if (fdd_media_mask & (1u << drive)) {
+                            dma_start_transfer(2, DMA_SOURCE_FILE_WRITE, &FLOPPY, offset, drive, 6);
+                        } else {
+                            // The fallback lives in flash and is read-only.
+                            // Failing the write is honest; pretending it
+                            // succeeded loses the guest's data silently.
+                            i8272_irq();
+                        }
                     } else {
                         // При ошибке генерируем IRQ сразу
                         i8272_irq();

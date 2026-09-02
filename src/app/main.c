@@ -20,6 +20,9 @@
 #include "state.h"
 #include "graphics.h"
 #include "psram.h"
+#include "cpu_probe.h"
+#include "screens.h"
+#include "ui_gfx.h"
 
 // 8086 related libs
 #include "i8237.h"
@@ -39,6 +42,11 @@ uint8_t videomode = 0;
 repeating_timer_t irq0_timer;
 
 uint8_t current_scancode = 0; // 0 = нет данных
+
+// Which floppy drives have an image open on the card, bit per drive. The
+// FDC reads this to decide between the SD file and the built-in bootOS
+// image; see src/chipset/i8272.h.
+uint8_t fdd_media_mask = 0;
 pwm_config pwm;
 FATFS fs;
 
@@ -57,11 +65,10 @@ static void beep(const uint slice, const uint32_t pwm_base_hz,
     sleep_ms(ms);
 }
 
-// A one-line message on the top row of the text screen, for the failures
-// that happen before the 8086 exists and so can never reach a BIOS.
-static void banner(const char *msg) {
-    draw_text(msg, 0, 0, 15, 4);
-}
+// How long the splash is held before booting on its own. Long enough to
+// read the hardware report, short enough that a headless board is not
+// visibly stuck. Doubles as SETUP's "is anyone there" window.
+#define SPLASH_HOLD_MS 4000u
 
 static inline void pic_init(void) {
     // Настройка INTR как выход
@@ -155,22 +162,72 @@ bool handleScancode(const uint8_t ps2scancode) {
     FIL hdd_file;
 
     const bool sd_ok = (FR_OK == f_mount(&fs, "", 1));
-    if (!sd_ok) {
-        printf("[xt8086] no SD card, or the card could not be mounted\n");
-        banner("No SD card. Boot media and settings are unavailable.");
-    }
+    if (!sd_ok) printf("[xt8086] no SD card, or the card could not be mounted\n");
 
     // Settings live on the card; without one, the defaults stand.
     if (sd_ok) load_settings();
 
+    // Is there actually a CPU in the socket?
+    //
+    // Before the splash, because the splash reports the answer, and
+    // before core 1, because the probe drives the same bus and clock that
+    // core 1 is about to take over. Ten milliseconds at the configured
+    // speed is many times what an 8086 needs to reach its first fetch.
+    static constexpr uint32_t cpu_frequencies[] = { 1000, 4750, 6000 };
+    const uint32_t cpu_khz = cpu_frequencies[settings.cpu_freq_index];
+    const cpu_probe_result_t cpu = cpu_probe(cpu_khz, 10);
+
+    if (!cpu.present) {
+        printf("[xt8086] no bus activity from the 8086\n");
+    } else if (!cpu.vector_ok) {
+        printf("[xt8086] 8086 fetched %05lx, expected %05x\n",
+               (unsigned long)cpu.first_addr, I8086_RESET_VECTOR);
+    } else {
+        printf("[xt8086] 8086 present, reset vector ok, %lu cycles\n",
+               (unsigned long)cpu.cycles);
+    }
+
+    const splash_info_t info = {
+        .cpu_mhz         = PICO_CLOCK_SPEED / MHZ,
+        .psram_mhz       = PSRAM_FREQ_HZ / MHZ,
+        .sd_ok           = sd_ok,
+        .cpu8086_present = cpu.present && cpu.vector_ok,
+        .cpu8086_khz     = cpu_khz,
+    };
+
+    // A CPU that answered but from the wrong address is a fault worth
+    // stopping for: it means the address bus is miswired or the part is
+    // damaged, and letting the BIOS run into that produces a confusing
+    // hang instead of a clear message. A CPU that said nothing at all is
+    // reported on the splash and allowed through, because the rest of the
+    // board is still worth using.
+    if (cpu.present && !cpu.vector_ok) {
+        char detail[64];
+        snprintf(detail, sizeof detail, "First fetch was %05lX, expected %05X",
+                 (unsigned long)cpu.first_addr, I8086_RESET_VECTOR);
+        screen_fatal(" CPU Fault ", "The 8086 is not fetching its reset vector.",
+                     detail);
+    }
+
+    // The splash doubles as the window in which an operator can ask for
+    // SETUP. No key pressed means nobody is watching, so boot.
+    const bool wants_setup = screen_splash(&info, SPLASH_HOLD_MS);
+
+    if (!sd_ok) {
+        screen_warning(" No microSD ",
+                       "No card, so no disk images and no saved settings.",
+                       "Drive A: falls back to the built-in bootOS.", 4000);
+    }
+
     // SETUP, before the disks are opened and before core 1 starts.
-    setup_menu();
+    if (wants_setup) setup_menu();
 
     // Открываем первую дискетку (обязательная) - используем путь из settings
     if (sd_ok && settings.fda[0] != '\0') {
         if (FR_OK != f_open(&floppy_files[0], settings.fda, FA_READ | FA_WRITE)) {
             printf("Floppy image not found: %s\n", settings.fda);
-            // reset_usb_boot(0, 0);
+        } else {
+            fdd_media_mask |= 1u << 0;
         }
     }
 
@@ -178,6 +235,8 @@ bool handleScancode(const uint8_t ps2scancode) {
     if (sd_ok && settings.fdb[0] != '\0') {
         if (FR_OK != f_open(&floppy_files[1], settings.fdb, FA_READ | FA_WRITE)) {
             printf("Warning: Second floppy image (%s) not found, drive B: will be unavailable\n", settings.fdb);
+        } else {
+            fdd_media_mask |= 1u << 1;
         }
     } else {
         printf("Floppy B: disabled (no image selected)\n");
