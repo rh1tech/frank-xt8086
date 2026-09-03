@@ -111,35 +111,30 @@ __force_inline static uint16_t memory_read(const uint32_t address, const bool bh
         return *(uint16_t *)&VIDEORAM[HERC_VRAM_BASE + (address - 0xB0000)];
     }
 
-    // The EGA/VGA card owns 0xA0000..0xAFFFF, and decides for itself what
-    // a write there means: which planes, through which latches, under
-    // which write mode. See chipset/vgacard.h.
-    if ((address - 0xA0000) < 0x10000) {
-        /*
-         * Byte enables matter on a read here, which they do nowhere else.
-         *
-         * Reading EGA memory is not a passive act: every read loads the
-         * card's four latches from the address read. This used to fetch
-         * both halves of the word whatever the CPU had asked for, so a
-         * byte read of an even address went on to read the odd one too
-         * and left the latches holding the *next* byte.
-         *
-         * Latch-based drawing -- write mode 1, and the read-modify-write
-         * that masked plane writes amount to -- then wrote the wrong
-         * eight pixels. It showed as vertical bands one byte wide
-         * straight through the picture, which is how Dangerous Dave 2's
-         * title came out striped.
-         */
-        const uint32_t off = address - 0xA0000;
-        if (likely(!(bhe | a0)))
-            return (uint16_t)vgacard_mem_read(off) |
-                   (uint16_t)vgacard_mem_read(off + 1) << 8;
-        return a0 ? (uint16_t)vgacard_mem_read(off + 1) << 8
-                  : (uint16_t)vgacard_mem_read(off);
-    }
+    /*
+     * The redundant twin of this block used to live here, unconditional
+     * and reached only once VGA was disabled -- the settings.vga check
+     * above already covers this whole range when the card is present, so
+     * the only thing this one ever did was answer for the card after the
+     * user had turned it off. Removed along with its write-side copy.
+     */
 
     // The video BIOS, 32K at C000-C7FF. See tools/vgabios/README.md.
-    if ((address - 0xC0000) < 0x8000) {
+    //
+    // Present only when settings.vga is on. GLaBIOS's C000 option-ROM
+    // scan is memory-based, not settings-based: mapping this unconditionally
+    // meant it found and ran the video BIOS regardless of the user's
+    // choice, which programmed the card into VGA text mode while every
+    // other path here -- the A0000 window above, the B8000 write below --
+    // still treated the card as absent. Text kept its right shape,
+    // because the geometry the renderer used did come from the card, but
+    // every glyph was wrong: the video BIOS's writes went to the card and
+    // the renderer's own text-page reads followed it there, while DOS's
+    // writes went to the plain CGA buffer nothing was reading from
+    // any more. With the ROM hidden, GLaBIOS never finds a video BIOS at
+    // all and falls back to its own CGA INT 10h, exactly as if the
+    // machine had no VGA card -- which is what the setting promises.
+    if (settings.vga && (address - 0xC0000) < 0x8000) {
         return *(uint16_t *)&VGABIOS[address - 0xC0000];
     }
 
@@ -205,25 +200,6 @@ __force_inline static void memory_write(const uint32_t address, const uint16_t d
     // Only reachable once the ceiling has been lowered for Hercules.
     if ((address - 0xB0000) < 0x8000) {
         write_to(VIDEORAM, HERC_VRAM_BASE + (address - 0xB0000), data, bhe);
-        return;
-    }
-
-    if ((address - 0xA0000) < 0x10000) {
-        /*
-         * The same byte-enable rules write_to() uses, and they matter
-         * more here: every one of these goes through the card's write
-         * logic, which may spread one byte across four planes. Getting
-         * the wrong half of a word to the wrong address does not smear
-         * the picture, it fills it with rubbish.
-         */
-        const uint32_t off = address - 0xA0000;
-        const uint32_t A0  = address & 1;
-        if (likely(!(bhe | A0))) {
-            vgacard_mem_write(off,     (uint8_t)data);
-            vgacard_mem_write(off + 1, (uint8_t)(data >> 8));
-        } else {
-            vgacard_mem_write(off, A0 ? (uint8_t)(data >> 8) : (uint8_t)data);
-        }
         return;
     }
 

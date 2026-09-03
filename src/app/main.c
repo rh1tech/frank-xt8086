@@ -519,7 +519,7 @@ bool handleScancode(const uint8_t ps2scancode) {
              * shape is translated here once a frame rather than teaching
              * every renderer two dialects.
              */
-            if (vga_frame.submode == 0) {
+            if (settings.vga && vga_frame.submode == 0) {
                 vgacard_text_t t;
                 if (vgacard_text_geometry(&t)) {
                     extern bool vga_text_from_card;
