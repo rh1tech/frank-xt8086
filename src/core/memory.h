@@ -44,7 +44,8 @@ extern uint32_t ram_limit;
 // ============================================================================
 // Memory Read (16-bit)
 // ============================================================================
-__force_inline static uint16_t memory_read(const uint32_t address) {
+__force_inline static uint16_t memory_read(const uint32_t address, const bool bhe,
+                                          const uint32_t a0) {
     if (address < ram_limit) {
         return *(uint16_t *)&RAM[address];
     }
@@ -64,8 +65,27 @@ __force_inline static uint16_t memory_read(const uint32_t address) {
     // a write there means: which planes, through which latches, under
     // which write mode. See chipset/vgacard.h.
     if ((address - 0xA0000) < 0x10000) {
-        return (uint16_t)vgacard_mem_read(address - 0xA0000) |
-               (uint16_t)vgacard_mem_read(address - 0xA0000 + 1) << 8;
+        /*
+         * Byte enables matter on a read here, which they do nowhere else.
+         *
+         * Reading EGA memory is not a passive act: every read loads the
+         * card's four latches from the address read. This used to fetch
+         * both halves of the word whatever the CPU had asked for, so a
+         * byte read of an even address went on to read the odd one too
+         * and left the latches holding the *next* byte.
+         *
+         * Latch-based drawing -- write mode 1, and the read-modify-write
+         * that masked plane writes amount to -- then wrote the wrong
+         * eight pixels. It showed as vertical bands one byte wide
+         * straight through the picture, which is how Dangerous Dave 2's
+         * title came out striped.
+         */
+        const uint32_t off = address - 0xA0000;
+        if (likely(!(bhe | a0)))
+            return (uint16_t)vgacard_mem_read(off) |
+                   (uint16_t)vgacard_mem_read(off + 1) << 8;
+        return a0 ? (uint16_t)vgacard_mem_read(off + 1) << 8
+                  : (uint16_t)vgacard_mem_read(off);
     }
 
     if ((address - 0xC8000) < 8192) {
