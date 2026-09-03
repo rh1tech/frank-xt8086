@@ -33,6 +33,32 @@ void start_cpu_clock(uint32_t frequency_khz)
 
 void reset_cpu(void)
 {
+    /*
+     * The serial mouse's handshake needs a clean modem-control register,
+     * which this pin does not give it.
+     *
+     * Microsoft Serial Mouse identifies itself on a *rising* edge of DTR
+     * or RTS: the driver asserts one, the port answers 'M', and that is
+     * how CuteMouse knows a mouse is there at all. RESET_PIN restarts the
+     * 8086, not this firmware's own state, so uart.mcr carries on holding
+     * whatever the previous session's driver left it at -- both lines
+     * already high, the steady state after a successful init. The next
+     * session's driver raises them the same way it always does, finds no
+     * edge to trigger on because they were never lowered first, gets no
+     * 'M', and reports no mouse. Only a full power cycle, which does
+     * reset this struct, ever saw the identification succeed.
+     *
+     * Clearing it here is what powering on real hardware would do to a
+     * real UART's control lines, and it is what makes every boot behave
+     * like the first one rather than like whatever the last session
+     * happened to leave behind.
+     */
+    extern uart_16550_s uart;
+    uart.mcr        = 0;
+    uart.data_ready = false;
+    uart.rx_head    = 0;
+    uart.rx_tail    = 0;
+
     gpio_init(RESET_PIN);
     gpio_set_dir(RESET_PIN, GPIO_OUT);
 

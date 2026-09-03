@@ -52,7 +52,25 @@ extern uart_16550_s uart;
 // uart_write_byte - Запись байта в UART RBR (для эмуляции входящих данных)
 // Используется для Microsoft Serial Mouse protocol
 // ============================================================================
-__force_inline static void uart_write_byte(const uint8_t data) {
+// How many bytes could be pushed right now without overflowing the ring.
+// The mouse packet coalescer in drivers/usbhid/hid_app.c checks this
+// before committing to a packet, so it can hold the delta back rather
+// than let uart_write_byte() drop the tail of one three-byte packet and
+// leave the guest's frame sync one byte short forever after.
+__force_inline static uint8_t uart_rx_room(void) {
+    return (uart.rx_tail - uart.rx_head - 1) & 0x0F;
+}
+
+/*
+ * Returns true if the byte was queued, false if the FIFO had no room and
+ * it was dropped -- silence used to be the whole story here, which was
+ * fine for the identification byte this was written for (one byte, and
+ * losing it just means the driver's own timeout retries). A mouse
+ * packet's caller needs to tell the two apart: dropping the tail of a
+ * three-byte packet is not silent to the guest, it desyncs its frame
+ * sync until the next byte happens to look like a new one.
+ */
+__force_inline static bool uart_write_byte(const uint8_t data) {
     // Вычисляем следующую позицию head
     const uint8_t next_head = (uart.rx_head + 1) & 0x0F;
 
@@ -68,7 +86,9 @@ __force_inline static void uart_write_byte(const uint8_t data) {
         if (uart.ier & 0x01) {
             i8259_interrupt(4);  // COM1 = IRQ4
         }
+        return true;
     }
+    return false;
     // Если FIFO переполнен - молча игнорируем (эмуляция overrun)
 }
 
@@ -92,6 +112,36 @@ __force_inline static uint8_t uart_read(const uint32_t port) {
 
                 // Обновляем data_ready: если FIFO опустел, сбрасываем флаг
                 uart.data_ready = (uart.rx_tail != uart.rx_head);
+
+                /*
+                 * A real 8250/16450 -- what a serial mouse driver is
+                 * written for -- interrupts once *per byte*: RBR read
+                 * clears that byte's condition, and if another byte is
+                 * already sitting there, the interrupt line is asserted
+                 * again immediately. uart_write_byte() only calls
+                 * i8259_interrupt() at write time, so three bytes queued
+                 * together (one packet, written back-to-back in
+                 * mouse_flush()) OR three or four bytes' worth of one
+                 * IRR bit produce exactly one request no matter how many
+                 * bytes arrived, because OR-ing the same bit twice is a
+                 * no-op. A driver that reads one byte, sends EOI and
+                 * returns -- which is exactly what a real UART trains it
+                 * to do -- then never learns the other bytes are there:
+                 * nothing calls i8259_interrupt(4) again until the next
+                 * write, and by then the FIFO has more unread bytes
+                 * than the write freed up. That backlog only grows,
+                 * eventually blocking uart_rx_room() forever -- exactly
+                 * the "moves once, then never again" symptom this was
+                 * written to fix.
+                 *
+                 * Re-raising here for whatever is left closes exactly
+                 * that gap: a driver that behaves like the hardware it
+                 * was written for gets interrupted once per remaining
+                 * byte, the same as that hardware would.
+                 */
+                if (uart.data_ready && (uart.ier & 0x01)) {
+                    i8259_interrupt(4);
+                }
                 return data;
             }
             // FIFO пуст - возвращаем старое значение rbr (для совместимости)
@@ -213,6 +263,16 @@ __force_inline static void uart_write(const uint32_t port, const uint8_t data) {
             const bool dtr_rising = (!(old_mcr & 0x01)) && (data & 0x01);
 
             if (/*is_usb_mouse_connected() && */(rts_rising || dtr_rising)) {
+                // Powering on: whatever was left in the FIFO predates this
+                // driver's own init and is not what it is expecting to
+                // read first. A real mouse's first byte on power-up is
+                // 'M' with nothing ahead of it; give this one the same
+                // clean start rather than let a stale byte from a prior
+                // session bury the identifier the driver is waiting for.
+                uart.rx_head    = 0;
+                uart.rx_tail    = 0;
+                uart.data_ready = false;
+
                 // Отправляем идентификатор Microsoft Serial Mouse (2-button)
                 // "M" = ASCII 0x4D
                 uart_write_byte('M');

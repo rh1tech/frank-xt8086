@@ -187,60 +187,143 @@ __force_inline static void find_released_keys(hid_keyboard_report_t const* repor
 //   Byte 0: [0 1 L R Y7 Y6 X7 X6] - sync byte (биты 7,6=0,1; L,R - кнопки; X7-X6,Y7-Y6 - старшие биты координат)
 //   Byte 1: [0 0 X5 X4 X3 X2 X1 X0] - младшие 6 бит X смещения
 //   Byte 2: [0 0 Y5 Y4 Y3 Y2 Y1 Y0] - младшие 6 бит Y смещения
+/*
+ * A USB mouse reports as fast as it samples -- 125 to 1000 times a
+ * second, unrelated to any wire speed, because it has no wire. A
+ * Microsoft Serial Mouse's whole design assumes the opposite: every
+ * packet crosses an actual RS-232 link, so a driver reading it has no
+ * way to arrive faster than 1200 baud lets three bytes arrive, roughly
+ * 25ms apart. Turning every USB report straight into a packet and
+ * writing it through uart_write_byte() one-for-one was asking the guest
+ * to keep up with a mouse ten to eighty times faster than the protocol
+ * it was written for -- which it cannot, since it is only looking at the
+ * port when COM1's own IRQ4 says to, and this firmware fires that IRQ4
+ * far faster than 1200 baud ever would. The 16-byte FIFO filled and
+ * uart_write_byte() silently dropped the overflow, which is fine for one
+ * lost byte and is not fine for the tail of a three-byte packet: the
+ * guest's frame sync was left one or two bytes short of a packet whose
+ * first byte it had already taken as real, and it read the *next*
+ * packet's bytes as if they continued the last one. On a bench capture
+ * this showed as two thirds of every packet's bytes dropped and the
+ * cursor moving once, correctly, and then not again -- not because
+ * nothing more arrived, but because nothing that arrived after was ever
+ * going to parse as a valid packet again.
+ *
+ * The fix is not to send less often -- it is to never present a partial
+ * packet as the reason to stop. Every HID report's dx/dy is folded into
+ * a running total instead of being turned into a packet on the spot;
+ * mouse_flush(), called once a frame from keyboard_tick() rather than
+ * once a USB report, is the only place a packet is ever built, and it
+ * only builds one when uart_rx_room() proves there is space for all
+ * three bytes first. Once built, only what that packet actually carried
+ * -- at most +-63 a side -- is subtracted back out of the total, so a
+ * flick bigger than one packet can hold is not lost, it is spread over
+ * however many frames it takes to drain, the same way a real Microsoft
+ * Serial Mouse would spread it over however many packets the wire needs.
+ */
+static int32_t  mouse_pending_dx, mouse_pending_dy;
+static uint8_t  mouse_pending_buttons, mouse_sent_buttons;
+static bool     mouse_have_backlog;
+
+/*
+ * A real Microsoft Serial Mouse is powered by DTR/RTS -- it has no other
+ * power pin, so it sends nothing at all until the driver asserts one.
+ * Feeding it movement bytes before that point is not something a real
+ * mouse on a real wire could ever do. But that is exactly what turning
+ * every HID report straight into queued bytes from boot onward did here:
+ * the RX FIFO filled with movement data before CuteMouse ever touched
+ * MCR, so by the time it asserted DTR/RTS and read the port expecting
+ * 'M' as the very first byte, it found either a stale movement byte
+ * ahead of 'M' or a full FIFO that silently dropped 'M' altogether --
+ * "device not found" either way, and not because identification itself
+ * was wrong, but because it was never the first thing in the pipe.
+ */
+static inline bool mouse_powered(void) {
+    return (uart.mcr & 0x03) != 0; // DTR or RTS asserted
+}
+
 static void process_mouse_report(uint8_t const* report, uint16_t len) {
     if (len < 3) return; // Минимальный размер HID mouse report
 
-    // ========================================
-    // Шаг 1: Парсинг HID mouse report
-    // ========================================
+    if (!mouse_powered()) {
+        // Not seen by any driver yet -- nothing to carry forward once one arrives.
+        mouse_pending_dx = mouse_pending_dy = 0;
+        mouse_have_backlog = false;
+        return;
+    }
+
     // Стандартный HID mouse report format:
     // Byte 0: buttons (bit0=L, bit1=R, bit2=Middle)
     // Byte 1: X movement (signed 8-bit)
     // Byte 2: Y movement (signed 8-bit)
+    mouse_pending_dx      += (int8_t)report[1];
+    mouse_pending_dy      += (int8_t)report[2];
+    mouse_pending_buttons  = report[0] & 0x03; // L и R (Microsoft Serial Mouse = 2-button)
+    mouse_have_backlog     = true;
+}
 
-    const uint8_t buttons = report[0] & 0x03; // Берём только L и R кнопки (Microsoft Serial Mouse = 2-button)
-    int8_t dx = (int8_t)report[1];
-    int8_t dy = (int8_t)report[2];
+/*
+ * Build and send at most one packet, only if there is room for all
+ * three of its bytes and 1200 baud's worth of time has actually passed.
+ * Called from keyboard_tick(), so a backlog too big for one packet keeps
+ * draining on its own even once the mouse has stopped moving and no new
+ * HID report is going to call this again.
+ *
+ * The room check alone used to be enough of a rate limit: before IRQ4
+ * was re-raised for bytes left behind in the FIFO (see uart16550.h), the
+ * guest only ever drained one byte per interrupt, so the FIFO stayed
+ * backed up and uart_rx_room() rejected most calls on its own. Fixing
+ * that drain also removed the accidental throttle -- a guest that empties
+ * the FIFO the instant it is written leaves room available on nearly
+ * every core0 tick, and a fast mouse has a fresh backlog on nearly every
+ * tick too, so packets went out (and IRQ4 fired three times each) far
+ * faster than 1200 baud could really carry them. That is plenty of
+ * extra traffic through the same highest-priority bus IRQ that answers
+ * every 8086 cycle, video reads included, and showed up as flicker on
+ * fast moves. A real Microsoft Serial Mouse cannot outrun its own wire;
+ * this now can't either.
+ */
+static void mouse_flush(void) {
+    if (!mouse_powered()) {
+        // Powered off (or never powered on): drop any backlog rather than
+        // unload it as one big jump the moment a driver finally shows up.
+        mouse_pending_dx = mouse_pending_dy = 0;
+        mouse_have_backlog = false;
+        return;
+    }
+    if (!mouse_have_backlog) return;
 
-    // ========================================
-    // Шаг 2: Конвертация в Microsoft Serial Mouse protocol
-    // ========================================
-    // Microsoft Serial Mouse использует 7-битные координаты со знаком
-    // Диапазон: -64..+63 (6 бит + знак в старшем бите синхронизации)
+    static absolute_time_t next_send_due;
+    if (absolute_time_diff_us(get_absolute_time(), next_send_due) > 0) return;
 
-    // Ограничиваем координаты до ±63 (чтобы влезли в 6 бит + знак)
-    if (dx > 63) dx = 63;
-    if (dx < -64) dx = -64;
-    if (dy > 63) dy = 63;
-    if (dy < -64) dy = -64;
+    if (uart_rx_room() < 3) return;   // try again next frame
 
-    // Формируем 3 байта протокола Microsoft Serial Mouse
-    uint8_t packet[3];
+    // Microsoft Serial Mouse's coordinates are 6 bits and signed, so
+    // +-63 a packet; clamp to that and carry whatever is left over.
+    int32_t dx = mouse_pending_dx, dy = mouse_pending_dy;
+    if (dx > 63) dx = 63; else if (dx < -64) dx = -64;
+    if (dy > 63) dy = 63; else if (dy < -64) dy = -64;
+
+    mouse_pending_dx -= dx;
+    mouse_pending_dy -= dy;
+    mouse_sent_buttons = mouse_pending_buttons;
+    mouse_have_backlog = (mouse_pending_dx != 0) || (mouse_pending_dy != 0);
 
     // Byte 0: [0 1 L R Y7 Y6 X7 X6]
-    //   биты 7,6 = 0,1 (синхронизация)
-    //   бит 5 = Left button (1=нажата)
-    //   бит 4 = Right button (1=нажата)
-    //   биты 3,2 = старшие биты Y (Y7, Y6)
-    //   биты 1,0 = старшие биты X (X7, X6)
-    packet[0] = 0x40;  // Биты 7,6 = 0,1
-    packet[0] |= ((buttons & 0x01) << 5);  // Left button → bit 5
-    packet[0] |= ((buttons & 0x02) << 3);  // Right button → bit 4
-    packet[0] |= ((dy >> 4) & 0x0C);       // Y7,Y6 → bits 3,2
-    packet[0] |= ((dx >> 6) & 0x03);       // X7,X6 → bits 1,0
+    uint8_t packet[3];
+    packet[0]  = 0x40;
+    packet[0] |= ((mouse_sent_buttons & 0x01) << 5);  // Left button → bit 5
+    packet[0] |= ((mouse_sent_buttons & 0x02) << 3);  // Right button → bit 4
+    packet[0] |= ((dy >> 4) & 0x0C);                  // Y7,Y6 → bits 3,2
+    packet[0] |= ((dx >> 6) & 0x03);                  // X7,X6 → bits 1,0
+    packet[1]  = dx & 0x3F;                           // X5..X0
+    packet[2]  = dy & 0x3F;                           // Y5..Y0
 
-    // Byte 1: [0 0 X5 X4 X3 X2 X1 X0]
-    packet[1] = dx & 0x3F;
-
-    // Byte 2: [0 0 Y5 Y4 Y3 Y2 Y1 Y0]
-    packet[2] = dy & 0x3F;
-
-    // ========================================
-    // Шаг 3: Отправка через COM1 (UART)
-    // ========================================
     uart_write_byte(packet[0]);
     uart_write_byte(packet[1]);
     uart_write_byte(packet[2]);
+
+    next_send_due = make_timeout_time_ms(25); // ~1200 baud, 3 bytes, 8N1
 }
 
 /*
@@ -352,6 +435,7 @@ void keyboard_inject(const uint8_t xt_scancode) {
 void keyboard_tick(void) {
     tuh_task();
     typematic_task();
+    mouse_flush();
 
     /*
      * Hand over the next code only once the guest has taken the last one.

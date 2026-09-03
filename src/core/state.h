@@ -96,16 +96,25 @@ typedef struct {
     uint8_t ier;           // Interrupt Enable Register
     uint8_t iir;           // Interrupt Identification Register
     uint8_t lcr;           // Line Control Register (бит 7 = DLAB)
-    uint8_t mcr;           // Modem Control Register
+    volatile uint8_t mcr;  // Modem Control Register -- written on core1 (guest OUT),
+                            // read on core0 (mouse_powered() in hid_app.c)
     uint8_t lsr;           // Line Status Register
     uint8_t msr;           // Modem Status Register
     uint16_t divisor;      // Divisor latch (для baud rate, игнорируем)
-    bool data_ready;       // Флаг: есть данные в RBR для чтения
+    volatile bool data_ready; // Есть данные в RBR -- written both cores, read both cores
 
-    // FIFO буфер для приема данных (для Microsoft Serial Mouse)
+    // FIFO буфер для приема данных (для Microsoft Serial Mouse).
+    // rx_head is written only by the core0 producer (uart_write_byte(),
+    // called from hid_app.c's mouse_flush()) and read only by the core1
+    // consumer (uart_read()'s room/empty check); rx_tail is the reverse.
+    // Without volatile here, nothing stops either core from holding a
+    // stale copy across the call -- which reads as a genuine byte
+    // ping-ponging silently instead of a compile error, and matches
+    // exactly the "works once, then mostly doesn't" symptom a missed
+    // cross-core update produces.
     uint8_t rx_fifo[16];   // Приемный FIFO (достаточно для нескольких mouse packets)
-    uint8_t rx_head;       // Индекс головы (куда писать)
-    uint8_t rx_tail;       // Индекс хвоста (откуда читать)
+    volatile uint8_t rx_head; // Индекс головы (куда писать)
+    volatile uint8_t rx_tail; // Индекс хвоста (откуда читать)
 } uart_16550_s;
 
 // Consolidated controller state for tighter locality; align to cache line for fast access

@@ -107,4 +107,3 @@ void mc6845_init_text_mode(void) {
     mc6845.cursor_blink_state = false;
     mc6845.text_blinking_mask = 0xFF; // Blinking disabled by default
 }
-
