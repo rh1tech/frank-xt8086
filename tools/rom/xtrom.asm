@@ -172,23 +172,6 @@ init:
         mov     word [10h*4], int10
         mov     [10h*4+2], cs
 
-        ; Release the EGA/VGA window.
-        ;
-        ; The firmware keeps the graphics mode a program last asked for,
-        ; and a reset does not clear it: the CPU restarts but the display
-        ; is still showing planar memory at 0xA0000. The BIOS sets its own
-        ; text mode long before option ROMs are scanned, so its mode set
-        ; never reaches the INT 10h hook below and nothing else puts the
-        ; window back.
-        ;
-        ; The symptom is a machine that looks dead after a warm reset:
-        ; DOS is writing text to 0xB8000, perfectly alive, onto a screen
-        ; still being drawn from the EGA planes. Doing it here means every
-        ; boot, warm or cold, starts from text.
-        mov     dx, FW_VIDEO
-        xor     al, al
-        out     dx, al
-
         ; INT 2Fh is deliberately NOT hooked here.
         ;
         ; It was, and it could never have worked: DOS installs its own

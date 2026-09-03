@@ -63,6 +63,21 @@ uint16_t redirector_read(uint16_t port, bool word);
  */
 void redirector_task(void);
 
+/*
+ * The machine is rebooting; drop everything the drive was holding.
+ *
+ * Set from the PIC's ICW1 handler, which runs in the bus interrupt, and
+ * acted on by redirector_task() because closing a file is FatFs work and
+ * belongs on core 0.
+ *
+ * It matters because this drive and the hard disk image are files on the
+ * same card, sharing one FatFs volume. A guest that stops with files
+ * still open -- a game that wedges, or any reboot out of one -- leaves
+ * those handles behind, and the next boot could not read the disk image
+ * to load the DR-DOS kernel.
+ */
+extern volatile bool redirector_reset_requested;
+
 // Which drive letter we answer for. H: is what MAPDRIVE.COM maps.
 #define REDIR_DRIVE 'H'
 

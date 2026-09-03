@@ -708,7 +708,24 @@ static void fn_read(void) {
     ok();
 }
 
+volatile bool redirector_reset_requested;
+
 void redirector_task(void) {
+    if (unlikely(redirector_reset_requested)) {
+        redirector_reset_requested = false;
+        for (int i = 0; i < MAX_OPEN_FILES; i++) {
+            if (open_used[i]) {
+                FS_LOCK();
+                f_close(&open_files[i]);
+                FS_UNLOCK();
+                open_used[i] = false;
+            }
+        }
+        pending = false;
+        done    = false;
+        slot    = 0;
+    }
+
     if (!pending) return;
     pending = false;
 

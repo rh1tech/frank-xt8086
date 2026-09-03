@@ -1,6 +1,9 @@
 #pragma once
 #include "state.h"
 extern i8259_s i8259;
+extern cga_s cga;   // state.c; ICW1 hands the display back, see below
+
+#include "redirector.h"
 
 __force_inline static uint8_t i8259_read(const uint16_t port_number) {
     switch (port_number) {
@@ -20,6 +23,42 @@ __force_inline static void i8259_write(const uint16_t port_number, const uint8_t
                 i8259.initialization_command_words_1 = data;
                 i8259.initialization_command_word_step = 2;
                 i8259.register_read_mode = 0;
+
+                /*
+                 * ICW1 is the machine starting up, and the only reliable
+                 * sign of it we get. The 8086's RESET is a wire, not a
+                 * bus cycle, and a warm boot through Ctrl+Alt+Del is not
+                 * even that -- it is a far jump to FFFF:0 that the
+                 * firmware cannot see at all. POST programs this
+                 * controller early either way.
+                 *
+                 * What has to be undone is the graphics mode. The
+                 * firmware holds whatever a program last asked for, so
+                 * after a game the display kept drawing the EGA planes at
+                 * 0xA0000 while DOS wrote text to 0xB8000: a machine that
+                 * looked dead while it was running perfectly.
+                 *
+                 * The option ROM used to do this, from its own init. It
+                 * cost a boot: writing the port from the guest during
+                 * POST left the warm path hanging as the DR-DOS kernel
+                 * loaded, every time. Here it is a couple of stores in a
+                 * handler that was already running, and it costs nothing.
+                 */
+                cga.vga_mode_request = 0;
+                cga.updated = true;
+
+                /*
+                 * And the network drive lets go of whatever it had open.
+                 * It and the hard disk image are files on one card,
+                 * sharing a single FatFs volume, so handles left behind
+                 * by a guest that stopped mid-file kept the next boot
+                 * from reading the image at all: POST and the boot sector
+                 * ran, then the DR-DOS kernel never loaded.
+                 *
+                 * Only the request is made here. Closing files is core 0
+                 * work; redirector_task() does it.
+                 */
+                redirector_reset_requested = true;
             } else if ((data & 0x08) == 0) {
                 //OCW2
                 //                i8259.ocw[2] = register_value;
