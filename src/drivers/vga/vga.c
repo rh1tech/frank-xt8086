@@ -740,7 +740,18 @@ void __time_critical_func() vga_scanline_dma() {
             const uint32_t src_line = (height <= 200)
                     ? (uint32_t)y
                     : ((uint32_t)y * 2u * (uint32_t)height) / 400u;
-            if (src_line >= (uint32_t)height) break;
+
+            /*
+             * Past the bottom of the picture, paint the line rather than
+             * leaving it: the scanline buffer still holds the last thing
+             * written there, and its bytes carry the sync bits.
+             */
+            if (src_line >= (uint32_t)height) {
+                const uint8_t bg = vga_frame.palette[0];
+                const uint32_t blank = (uint32_t)bg * 0x01010101u;
+                for (int i = 0; i < 160; i++) scanline_output_32[i] = blank;
+                break;
+            }
 
             const uint32_t stride = vga_frame.line_offset > 0
                     ? (uint32_t)vga_frame.line_offset * 2u
@@ -760,8 +771,31 @@ void __time_critical_func() vga_scanline_dma() {
             int words = vga_frame.width / 8;
             if (words > 80) words = 80;
 
+            /*
+             * Horizontal pixel panning, from the attribute controller's
+             * register 0x13. Three bits, so a line can start up to seven
+             * pixels into the first byte.
+             *
+             * This is the other half of hardware scrolling. The CRTC's
+             * start address moves the picture a byte -- eight pixels --
+             * at a time, and everything between is this register. Ignoring
+             * it, as this did, means a game scrolling smoothly jumps a
+             * whole byte at a time and sits at the wrong offset for seven
+             * frames out of eight.
+             *
+             * Taken from murm386's renderer: shift the eight pixels up by
+             * four bits per pixel of pan and pull the top of the next
+             * byte in underneath.
+             */
+            const int panning = vga_frame.panning & 7;
+            const int shift   = panning * 4;
+
             for (int i = 0; i < words; i++) {
-                const uint32_t px = ega_pack8(src[i]);
+                uint32_t px = ega_pack8(src[i]);
+                if (panning) {
+                    const uint32_t next = ega_pack8(src[i + 1]);
+                    px = (px << shift) | (next >> (32 - shift));
+                }
                 const uint32_t c0 = pal[ px >> 28        ], c1 = pal[(px >> 24) & 0xF];
                 const uint32_t c2 = pal[(px >> 20) & 0xF], c3 = pal[(px >> 16) & 0xF];
                 const uint32_t c4 = pal[(px >> 12) & 0xF], c5 = pal[(px >>  8) & 0xF];
