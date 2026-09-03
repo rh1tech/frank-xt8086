@@ -162,8 +162,13 @@ void vgacard_snap_frame(void) {
 
     const uint8_t *cr = vga->cr;
 
-    uint8_t hi, lo;
-    do { hi = cr[0x0C]; lo = cr[0x0D]; } while (hi != cr[0x0C]);
+    // Bounded: this runs in the scanline interrupt, and a guest writing
+    // the pair continuously must not be able to hold it there.
+    uint8_t hi = cr[0x0C], lo = cr[0x0D];
+    for (int tries = 0; tries < 4 && hi != cr[0x0C]; tries++) {
+        hi = cr[0x0C];
+        lo = cr[0x0D];
+    }
     vga_frame.start_addr = (uint16_t)((uint16_t)hi << 8 | lo);
 
     vga_frame.panning = (uint8_t)(vga->ar[0x13] & 0x07u);

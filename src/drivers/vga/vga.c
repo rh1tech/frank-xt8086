@@ -314,9 +314,24 @@ void __time_critical_func() vga_scanline_dma() {
     scanline++;
     if (unlikely(scanline == vt.total_scanlines)) {
         scanline = 0;
-        // Take the scrolling registers here, once, so every line of the
-        // frame is drawn from the same position. See vgacard_snap_frame().
-        if (vga_frame.submode) vgacard_snap_frame();
+    }
+
+    /*
+     * Take the scrolling registers a few lines before the frame starts.
+     *
+     * They have to be read once per frame so every scanline is drawn from
+     * the same position, and late enough to catch what software wrote
+     * during its own vertical retrace. But not on the first visible line,
+     * which is where this was: vgacard_snap_frame() retries until the two
+     * halves of the start address agree, and anything that spins there
+     * delays the pixels for that line. That is a wobble at the top of a
+     * scrolling picture, and it reads as the display losing sync.
+     *
+     * Four lines before the wrap is still blanking, so a retry costs
+     * nothing. It is where murm386 does it, for the same reason.
+     */
+    if (unlikely(scanline == vt.total_scanlines - 4u) && vga_frame.submode) {
+        vgacard_snap_frame();
     }
 
     // If outside visible area - mark output as finished
@@ -881,12 +896,37 @@ void __time_critical_func() vga_scanline_dma() {
             const int panning = vga_frame.panning & 7;
             const int shift   = panning * 4;
 
+            /*
+             * A sliding window rather than an extra unpack per word.
+             *
+             * Panning needs this word and the next one unpacked, and
+             * calling ega_pack8() on both, every iteration, unpacks every
+             * word in the line twice -- once as "next" here, again as
+             * "this" on the following pass. That doubled the cost of the
+             * one part of this loop actually worth measuring, only while
+             * scrolling was not aligned to a whole byte, which is most of
+             * the time a game is scrolling smoothly.
+             *
+             * It showed up as a scanline occasionally left half rendered:
+             * a slow line here does not delay the picture, because the
+             * DMA chain for that line is already running in hardware and
+             * does not wait for this loop to catch up. What it reads once
+             * software falls behind is whatever the buffer held from
+             * three frames ago -- a line correct for its first part and
+             * colourful noise for the rest, in a beat pattern timed to
+             * whenever this loop happened to be the slow one.
+             *
+             * Carrying the unpacked word forward makes it one call per
+             * word again regardless of panning.
+             */
+            uint32_t next_packed = ega_pack8(src[0]);
+
             for (int i = 0; i < words; i++) {
-                uint32_t px = ega_pack8(src[i]);
-                if (panning) {
-                    const uint32_t next = ega_pack8(src[i + 1]);
-                    px = (px << shift) | (next >> (32 - shift));
-                }
+                const uint32_t cur_packed = next_packed;
+                next_packed = ega_pack8(src[i + 1]);   // one unpack per word, total
+                const uint32_t px = panning
+                        ? (cur_packed << shift) | (next_packed >> (32 - shift))
+                        : cur_packed;
                 const uint32_t c0 = pal[ px >> 28        ], c1 = pal[(px >> 24) & 0xF];
                 const uint32_t c2 = pal[(px >> 20) & 0xF], c3 = pal[(px >> 16) & 0xF];
                 const uint32_t c4 = pal[(px >> 12) & 0xF], c5 = pal[(px >>  8) & 0xF];

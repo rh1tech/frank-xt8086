@@ -490,7 +490,23 @@ bool handleScancode(const uint8_t ps2scancode) {
              */
             vgacard_frame_t next_frame;
             vgacard_get_frame(&next_frame);
-            vga_frame = next_frame;
+            /*
+             * Everything except the three the scanline handler owns.
+             *
+             * start_addr, panning and line_compare are snapped once a
+             * frame in the interrupt, during blanking, so that every line
+             * is drawn from one position. Assigning the whole struct here
+             * put vgacard_get_frame()'s unsnapped copies straight back
+             * over them at whatever moment this loop happened to run --
+             * one frame drawn from somewhere else, which is a jolt in a
+             * scrolling picture.
+             */
+            vga_frame.submode     = next_frame.submode;
+            vga_frame.width       = next_frame.width;
+            vga_frame.height      = next_frame.height;
+            vga_frame.line_offset = next_frame.line_offset;
+            memcpy(vga_frame.palette, next_frame.palette,
+                   sizeof vga_frame.palette);
 
             /*
              * In text mode the card is the one being programmed, so the
