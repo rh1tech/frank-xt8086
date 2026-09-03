@@ -157,6 +157,23 @@ uint8_t vgacard_mem_read(const uint32_t addr) {
 
 const uint32_t *vgacard_planes(void) { return (const uint32_t *)vga_ram; }
 
+void vgacard_snap_frame(void) {
+    if (!vga) return;
+
+    const uint8_t *cr = vga->cr;
+
+    uint8_t hi, lo;
+    do { hi = cr[0x0C]; lo = cr[0x0D]; } while (hi != cr[0x0C]);
+    vga_frame.start_addr = (uint16_t)((uint16_t)hi << 8 | lo);
+
+    vga_frame.panning = (uint8_t)(vga->ar[0x13] & 0x07u);
+
+    const int lc = (int)cr[0x18]
+                 | (((int)cr[0x07] & 0x10) << 4)
+                 | (((int)cr[0x09] & 0x40) << 3);
+    vga_frame.line_compare = lc;
+}
+
 bool vgacard_text_geometry(vgacard_text_t *out) {
     if (!vga) return false;
 

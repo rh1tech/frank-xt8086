@@ -99,6 +99,27 @@ typedef struct {
 
 bool vgacard_text_geometry(vgacard_text_t *out);
 
+/*
+ * Re-read the registers that move the picture, at the frame boundary.
+ *
+ * The start address, the pixel panning and the split-screen line are the
+ * three a game changes while it scrolls, and they have to be taken at the
+ * same instant for every scanline of a frame or the picture is drawn from
+ * two different positions at once. Sampling them from the main loop, as
+ * the rest of the frame state is, is not that instant: it lands wherever
+ * it lands, so scrolling judders and the screen tears.
+ *
+ * Worse, the start address is two registers. Software writes 0x0C and
+ * 0x0D as separate OUTs and the scanline interrupt can arrive between
+ * them, giving a frame drawn from half of the old address and half of the
+ * new -- somewhere else entirely, which is what makes a sprite vanish for
+ * a frame. Read until the pair is stable.
+ *
+ * This is murm386's, including the retry, and it is called from the
+ * scanline handler rather than from anywhere else.
+ */
+void vgacard_snap_frame(void);
+
 // Read the card's current state. Called once a frame, not per scanline.
 void vgacard_get_frame(vgacard_frame_t *out);
 

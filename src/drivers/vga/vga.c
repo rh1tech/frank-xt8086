@@ -303,6 +303,9 @@ void __time_critical_func() vga_scanline_dma() {
     scanline++;
     if (unlikely(scanline == vt.total_scanlines)) {
         scanline = 0;
+        // Take the scrolling registers here, once, so every line of the
+        // frame is drawn from the same position. See vgacard_snap_frame().
+        if (vga_frame.submode) vgacard_snap_frame();
     }
 
     // If outside visible area - mark output as finished
