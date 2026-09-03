@@ -466,7 +466,31 @@ bool handleScancode(const uint8_t ps2scancode) {
              * software scrolls, so this cannot be done only on a mode
              * change: a picture that scrolls would sit still.
              */
-            vgacard_get_frame(&vga_frame);
+            /*
+             * Built aside and published whole.
+             *
+             * vgacard_get_frame() begins by zeroing the struct it is
+             * given, and the scanline handler is an interrupt on this
+             * same core reading that struct. Handing it vga_frame
+             * directly opened a window, once every frame, in which the
+             * palette was all zeroes.
+             *
+             * That is not a cosmetic race. The palette bytes carry the
+             * sync bits -- pack_colour() ors in 0xC0 to hold HSYNC and
+             * VSYNC inactive -- so a scanline rendered from a zeroed
+             * palette asserts both on every pixel. The monitor sees
+             * sync where the picture should be, drops the mode, and
+             * re-locks when the next good frame arrives: the display
+             * cutting in and out in EGA modes while text and CGA, which
+             * do not read this palette, stayed rock solid.
+             *
+             * The copy is not atomic either, but every byte in it is a
+             * valid entry, so the worst a torn read can do is mix two
+             * good frames.
+             */
+            vgacard_frame_t next_frame;
+            vgacard_get_frame(&next_frame);
+            vga_frame = next_frame;
 
             /*
              * A change of card mode has to drive the selection below, and
