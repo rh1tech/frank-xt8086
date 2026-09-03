@@ -37,7 +37,24 @@
  * taking it from somewhere that also needs it, and the mode it buys is
  * the one nothing here asks for.
  */
-#define VGACARD_RAM_SIZE (256u * 1024u)
+/*
+ * 128K, and not sharing its first byte with the text page.
+ *
+ * The card's memory and the CGA text buffer are both video_memory, and
+ * both used to start at offset 0. They are not the same thing laid out
+ * the same way: a text cell is two bytes, a character then an attribute,
+ * while the card interleaves four planes a byte at a time. Plane 2 of
+ * display address n therefore lands on the character byte of text cell
+ * 2n+1 -- so when the video BIOS loaded its font into plane 2, as it does
+ * at every text mode set, it wrote over every second character on screen.
+ * That is the alternating garbage the POST screen was full of.
+ *
+ * The card now starts above the 64K the CGA, Tandy and Hercules paths
+ * use, and 128K of it is 32768 display addresses: enough for 640x350x16,
+ * which wants 28000, and for everything smaller.
+ */
+#define VGACARD_RAM_SIZE  (128u * 1024u)
+#define VGACARD_RAM_BASE  (64u * 1024u)   // clear of the text page
 
 void     vgacard_init(void);
 

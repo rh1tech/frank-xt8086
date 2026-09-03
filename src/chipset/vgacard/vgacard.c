@@ -23,7 +23,7 @@
  * Hercules paths use, because only one adapter exists at a time.
  */
 extern uint8_t video_memory[];   // core/state.c
-#define vga_ram video_memory
+#define vga_ram (video_memory + VGACARD_RAM_BASE)
 
 static VGAState *vga;
 
