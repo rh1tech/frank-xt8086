@@ -50,10 +50,12 @@
  * That is the alternating garbage the POST screen was full of.
  *
  * The card now starts above the 64K the CGA, Tandy and Hercules paths
- * use, and 128K of it is 32768 display addresses: enough for 640x350x16,
- * which wants 28000, and for everything smaller.
+ * use and takes the rest, which is 49152 display addresses. 128K was not
+ * enough: it stops at 32768, and a game double buffering above that gets
+ * its second page wrapped back over its first -- garbage over a moving
+ * sprite, which is how it showed.
  */
-#define VGACARD_RAM_SIZE  (128u * 1024u)
+#define VGACARD_RAM_SIZE  (192u * 1024u)
 #define VGACARD_RAM_BASE  (64u * 1024u)   // clear of the text page
 
 void     vgacard_init(void);

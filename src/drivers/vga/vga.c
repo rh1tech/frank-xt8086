@@ -760,7 +760,8 @@ void __time_critical_func() vga_scanline_dma() {
             const uint32_t stride = vga_frame.line_offset > 0
                     ? (uint32_t)vga_frame.line_offset * 2u : 80u;
             uint32_t offset = vga_frame.start_addr + (uint32_t)y * stride;
-            offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
+            // Not a mask: the card's size is not a power of two.
+            if (offset >= VGACARD_RAM_SIZE / 4u) offset -= VGACARD_RAM_SIZE / 4u;
 
             const uint32_t *__restrict src = vgacard_planes() + offset;
             for (int i = 0; i < 80; i++) {
@@ -812,7 +813,8 @@ void __time_critical_func() vga_scanline_dma() {
                 offset = (src_line - (uint32_t)vga_frame.line_compare) * stride;
             else
                 offset = (uint32_t)vga_frame.start_addr + src_line * stride;
-            offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
+            // Not a mask: the card's size is not a power of two.
+            if (offset >= VGACARD_RAM_SIZE / 4u) offset -= VGACARD_RAM_SIZE / 4u;
 
             const uint32_t *__restrict src = vgacard_planes() + offset;
             const uint8_t  *__restrict pal = vga_frame.palette;
