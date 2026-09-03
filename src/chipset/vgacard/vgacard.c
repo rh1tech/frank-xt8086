@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <hardware/sync.h>
 #include <pico/time.h>
 
 #include "vga.h"
@@ -156,6 +157,102 @@ uint8_t vgacard_mem_read(const uint32_t addr) {
 }
 
 const uint32_t *vgacard_planes(void) { return (const uint32_t *)vga_ram; }
+
+// See vgacard.h: real VGA CRTCs wrap text addressing at 14 bits (8192
+// cells) regardless of how much VRAM the card has. TEXT_ROW_MARGIN cells
+// of the start are mirrored past the end so a row that starts near the
+// wrap and is read one cell at a time, uncorrected mid-row, lands on the
+// correctly-wrapped cell instead of running off this buffer -- 256 is
+// comfortably past the widest row vgacard_text_geometry() will hand out
+// (132 columns).
+#define TEXT_CELL_COUNT (VGACARD_TEXT_CELL_MASK + 1u)
+#define TEXT_ROW_MARGIN 256u
+static uint32_t text_snapshot[TEXT_CELL_COUNT + TEXT_ROW_MARGIN];
+
+static vgacard_text_t pending_text;
+static bool           pending_text_valid;
+
+/*
+ * Making vgacard_snap_text()'s commit into mc6845 a single atomic step
+ * (see vgacard.h) fixed only half of this race. The other half is here:
+ * pending_text is a multi-field struct, main.c's writer runs on core 0's
+ * main loop, and the scanline interrupt that reads it runs on core 0 too,
+ * at higher priority, free to preempt the write between any two of its
+ * field copies -- the exact same hazard the mc6845 fields had, one level
+ * further back. Both sides are a handful of bytes; disabling interrupts
+ * around each is not a real cost, and closing this half of the race
+ * costs nothing even if the other half turns out to have been the whole
+ * story.
+ */
+void vgacard_stage_text_geometry(const vgacard_text_t *t) {
+    const uint32_t irq_state = save_and_disable_interrupts();
+    pending_text = *t;
+    pending_text_valid = true;
+    restore_interrupts(irq_state);
+}
+
+// vgacard is deliberately isolated from core/ (see this file's
+// CMakeLists.txt), so the actual mc6845 commit happens in
+// drivers/vga/vga.c, which already reaches it; this just hands over
+// what to commit.
+bool vgacard_pending_text_geometry(vgacard_text_t *out) {
+    const uint32_t irq_state = save_and_disable_interrupts();
+    const bool valid = pending_text_valid;
+    if (valid) *out = pending_text;
+    restore_interrupts(irq_state);
+    return valid;
+}
+
+/*
+ * Copying the whole 8192-cell window unconditionally cost more than it
+ * needed to on the common case (a screen using only its first couple of
+ * thousand cells), and copying at all does not prove anything: a single
+ * memcpy() has no way to tell a clean read from one that landed
+ * mid-write, and the guest can be writing anywhere in this window at any
+ * time -- not just during a mode transition, since nothing here is
+ * exclusive to the guest's own screen output.
+ *
+ * Two fixes, not one: shrink the copy to what this frame actually needs
+ * (cutting the odds of the guest's own writes landing inside the window
+ * at all), and verify it by re-checksumming the live memory right after
+ * copying -- if the checksum moved, the guest wrote during the copy and
+ * the copy is retried. RAM here is too tight for a second full-size
+ * buffer to compare against directly, which is the only reason this is
+ * a checksum and not a byte-for-byte re-check.
+ */
+void vgacard_snap_text(void) {
+    if (!vga) return;
+
+    uint32_t cells_needed = TEXT_CELL_COUNT;
+    if (pending_text_valid) {
+        const uint32_t extent = (uint32_t)pending_text.start_addr
+                               + (uint32_t)pending_text.columns * pending_text.rows;
+        if (extent < TEXT_CELL_COUNT) cells_needed = extent;
+    }
+
+    const uint32_t *src = (const uint32_t *)vga_ram;
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+        uint32_t sum1 = 0;
+        for (uint32_t i = 0; i < cells_needed; i++) {
+            const uint32_t v = src[i];
+            text_snapshot[i] = v;
+            sum1 += v ^ (i * 2654435761u); // position-mixed: a shifted
+                                            // write, not just a changed
+                                            // one, still moves this
+        }
+        uint32_t sum2 = 0;
+        for (uint32_t i = 0; i < cells_needed; i++) {
+            sum2 += src[i] ^ (i * 2654435761u);
+        }
+        if (sum1 == sum2) break; // unchanged across the copy: not torn
+        // Guest wrote somewhere in here while this ran -- try again.
+    }
+
+    memcpy(text_snapshot + TEXT_CELL_COUNT, vga_ram, TEXT_ROW_MARGIN * sizeof(uint32_t));
+}
+
+const uint32_t *vgacard_text_planes(void) { return text_snapshot; }
 
 void vgacard_snap_frame(void) {
     if (!vga) return;
