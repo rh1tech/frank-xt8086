@@ -140,6 +140,31 @@ __force_inline void send_scancode_with_delay(uint8_t scancode) {
     sleep_ms(1);
 }
 
+/*
+ * A key is a press *and* a release.
+ *
+ * Only the modifiers were ever released here. The key itself went out as a
+ * make code and was left down, because the BIOS keyboard buffer acts on
+ * make codes and ignores everything else -- so typing at a DOS prompt
+ * worked, and that hid this for as long as the console was only ever used
+ * to type DOS commands.
+ *
+ * A game that installs its own INT 9 and tracks key state does care.
+ * Dangerous Dave 2 sits on its title screen forever: it saw the key go
+ * down, never saw it come up, and so never sees the next press. Its
+ * gameplay is unreachable over the console without this, and with it the
+ * arrow keys become usable as well -- which is what scrolling needs.
+ *
+ * An XT break code is the make code with bit 7 set, and an extended key
+ * carries the E0 prefix on both halves.
+ */
+__force_inline void send_key_tap(uint8_t scancode, bool extended) {
+    if (extended) send_scancode_with_delay(SCANCODE_EXTENDED);
+    send_scancode_with_delay(scancode);
+    if (extended) send_scancode_with_delay(SCANCODE_EXTENDED);
+    send_scancode_with_delay((uint8_t)(scancode | 0x80));
+}
+
 // ============================================================================
 // Отправка клавиши с модификаторами
 // ============================================================================
@@ -154,11 +179,7 @@ __force_inline void send_key(uint8_t modifier, uint8_t scancode, bool is_extende
     if (has_alt) send_scancode_with_delay(SCANCODE_LALT_MAKE);
     if (has_ctrl) send_scancode_with_delay(SCANCODE_LCTRL_MAKE);
 
-    // Extended prefix
-    if (is_extended) send_scancode_with_delay(SCANCODE_EXTENDED);
-
-    // Код клавиши
-    send_scancode_with_delay(scancode);
+    send_key_tap(scancode, is_extended);
 
     // Break-коды модификаторов (в обратном порядке)
     if (has_ctrl) send_scancode_with_delay(SCANCODE_LCTRL_BREAK);
@@ -177,7 +198,7 @@ __force_inline void send_ascii_as_scancode(int ascii) {
     // Обработка Ctrl+буква (control characters 0x01-0x1F)
     if (ascii >= 0x01 && ascii <= 0x1F && !is_control_exception(ascii)) {
         send_scancode_with_delay(SCANCODE_LCTRL_MAKE);
-        send_scancode_with_delay(get_ctrl_char_scancode(ascii));
+        send_key_tap(get_ctrl_char_scancode(ascii), false);
         send_scancode_with_delay(SCANCODE_LCTRL_BREAK);
         return;
     }
@@ -187,7 +208,7 @@ __force_inline void send_ascii_as_scancode(int ascii) {
 
     // Отправляем с Shift если нужно
     if (needs_shift(ascii)) send_scancode_with_delay(SCANCODE_LSHIFT_MAKE);
-    send_scancode_with_delay(scancode);
+    send_key_tap(scancode, false);
     if (needs_shift(ascii)) send_scancode_with_delay(SCANCODE_LSHIFT_BREAK);
 }
 
@@ -204,14 +225,14 @@ typedef enum {
 __force_inline void process_ss3_sequence(char c) {
     // SS3 последовательности (ESC O X)
     switch (c) {
-        case 'P': handleScancode(0x3B); break; // F1
-        case 'Q': handleScancode(0x3C); break; // F2
-        case 'R': handleScancode(0x3D); break; // F3
-        case 'S': handleScancode(0x3E); break; // F4
-        case 'A': send_scancode_with_delay(SCANCODE_EXTENDED); handleScancode(0x48); break; // Up
-        case 'B': send_scancode_with_delay(SCANCODE_EXTENDED); handleScancode(0x50); break; // Down
-        case 'C': send_scancode_with_delay(SCANCODE_EXTENDED); handleScancode(0x4D); break; // Right
-        case 'D': send_scancode_with_delay(SCANCODE_EXTENDED); handleScancode(0x4B); break; // Left
+        case 'P': send_key_tap(0x3B, false); break; // F1
+        case 'Q': send_key_tap(0x3C, false); break; // F2
+        case 'R': send_key_tap(0x3D, false); break; // F3
+        case 'S': send_key_tap(0x3E, false); break; // F4
+        case 'A': send_key_tap(0x48, true);  break; // Up
+        case 'B': send_key_tap(0x50, true);  break; // Down
+        case 'C': send_key_tap(0x4D, true);  break; // Right
+        case 'D': send_key_tap(0x4B, true);  break; // Left
     }
 }
 
