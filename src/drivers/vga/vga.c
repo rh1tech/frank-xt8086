@@ -818,9 +818,13 @@ void __time_critical_func() vga_scanline_dma() {
             uint32_t offset = vga_frame.start_addr + (uint32_t)y * stride;
             offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
 
-            const uint32_t *__restrict src = vgacard_planes() + offset;
+            const uint32_t *__restrict planes = vgacard_planes();
+            const uint32_t *__restrict plane_end =
+                    planes + VGACARD_RAM_SIZE / sizeof(*planes);
+            const uint32_t *__restrict src = planes + offset;
             for (int i = 0; i < 80; i++) {
-                const uint32_t px = src[i];
+                const uint32_t px = *src++;
+                if (unlikely(src == plane_end)) src = planes;
                 *scanline_output_32++ = palette[ px        & 0xFF] |
                                         (uint32_t)palette[(px >>  8) & 0xFF] << 16;
                 *scanline_output_32++ = palette[(px >> 16) & 0xFF] |
@@ -870,7 +874,10 @@ void __time_critical_func() vga_scanline_dma() {
                 offset = (uint32_t)vga_frame.start_addr + src_line * stride;
             offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
 
-            const uint32_t *__restrict src = vgacard_planes() + offset;
+            const uint32_t *__restrict planes = vgacard_planes();
+            const uint32_t *__restrict plane_end =
+                    planes + VGACARD_RAM_SIZE / sizeof(*planes);
+            const uint32_t *__restrict src = planes + offset;
             const uint8_t  *__restrict pal = vga_frame.palette;
             const bool doubled = vga_frame.width <= 320;
 
@@ -919,11 +926,21 @@ void __time_critical_func() vga_scanline_dma() {
              * Carrying the unpacked word forward makes it one call per
              * word again regardless of panning.
              */
-            uint32_t next_packed = ega_pack8(src[0]);
+            uint32_t next_packed = ega_pack8(*src);
 
             for (int i = 0; i < words; i++) {
                 const uint32_t cur_packed = next_packed;
-                next_packed = ega_pack8(src[i + 1]);   // one unpack per word, total
+
+                /*
+                 * The CRTC address counter is 16-bit and wraps within each
+                 * plane. Dangerous Dave scrolls the top line across that
+                 * boundary: without this wrap its rightmost pixels came
+                 * from memory beyond VRAM.
+                 */
+                if (unlikely(++src == plane_end)) src = planes;
+                if (i + 1 < words || panning)
+                    next_packed = ega_pack8(*src);
+
                 const uint32_t px = panning
                         ? (cur_packed << shift) | (next_packed >> (32 - shift))
                         : cur_packed;
