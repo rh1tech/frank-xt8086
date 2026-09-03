@@ -532,7 +532,21 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * describes it, and the card the guest thinks it is
                  * driving is not the one the rest of this decides.
                  */
-                if (settings.vga && vga_frame.submode) {
+                /*
+                 * cga.vga_mode_request, and not merely the card's own
+                 * submode, because the card stays programmed for the last
+                 * graphics mode until someone programs it otherwise.
+                 *
+                 * Port 0x3DC carries the option ROM's request, and a zero
+                 * written there is how it hands the display back on any
+                 * mode set that is not one of ours. Reading only the
+                 * submode ignored that: after a warm reset the CPU
+                 * restarted, the BIOS set its text mode, and the screen
+                 * carried on being drawn from the EGA planes at 0xA0000
+                 * while DOS wrote text to 0xB8000. The machine looked
+                 * dead when it was running perfectly.
+                 */
+                if (settings.vga && cga.vga_mode_request && vga_frame.submode) {
                     // The card knows what it was programmed for; width and
                     // height come from its own CRTC rather than the mode
                     // number, so a program that adjusts the geometry gets
