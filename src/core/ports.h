@@ -52,6 +52,10 @@ extern cga_s cga;
 extern mc6845_s mc6845_mda;
 extern mc6845_s mc6845;
 
+
+// How many registers the 6845 model actually has; see state.h.
+#define MC6845_REGS 16u
+
 static uint8_t crtc_index = 0;
 static uint8_t crtc_index_mda = 0;
 static uint8_t tga_index = 0;
@@ -63,7 +67,18 @@ __force_inline static uint8_t port_read8(const uint32_t address) {
         case 0x3D4:
             return crtc_index;
         case 0x3D5:
-            return mc6845.registers[crtc_index];
+            /*
+             * The card's own CRTC when it is the one being driven, and
+             * only then the CGA's.
+             *
+             * A 6845 has eighteen registers; a VGA CRTC has twenty-five,
+             * and the extra ones are exactly what hardware scrolling is
+             * made of -- Offset at 0x13, Line Compare at 0x18. Answering
+             * those out of the CGA model returned a register that model
+             * does not have.
+             */
+            if (vgacard_active()) return vgacard_port_read(0x3D5);
+            return crtc_index < MC6845_REGS ? mc6845.registers[crtc_index] : 0xFFu;
         case 0x3D8:
             return cga.port3D8;
         case 0x3D9:
@@ -239,7 +254,7 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3B3:
         case 0x3B5:
         case 0x3B7:
-            mc6845_mda.registers[crtc_index_mda] = data;
+            if (crtc_index_mda < MC6845_REGS) mc6845_mda.registers[crtc_index_mda] = data;
             mc6845_mda.vram_offset =
                     (mc6845_mda.r.start_addr_h << 8 | mc6845_mda.r.start_addr_l) << 1;
             return;
@@ -256,7 +271,21 @@ __force_inline static void port_write8(const uint32_t address, const uint8_t dat
         case 0x3D5:
         case 0x3D7:
             vgacard_port_write(0x3D5, (uint8_t)data);
-            mc6845.registers[crtc_index] = data;
+            /*
+             * Bounded, because crtc_index is whatever the guest last put
+             * on port 0x3D4 and the array behind it is sixteen bytes.
+             *
+             * The VGA CRTC registers above 0x0F are real and software
+             * uses them: Dangerous Dave 2 programs Offset (0x13) and Line
+             * Compare (0x18) every time it scrolls. Each of those wrote
+             * past the end of mc6845 and into whatever the linker had put
+             * next -- the DMA channels among it -- so the machine came
+             * apart in ways that survived a reset and cleared only on a
+             * reflash. The card itself takes the full write above; this
+             * copy exists for the CGA renderer, which has no use for a
+             * register a 6845 never had.
+             */
+            if (crtc_index < MC6845_REGS) mc6845.registers[crtc_index] = data;
 
             if (crtc_index < 0xc)
                 crtc_log("MC6845 register %x (%d) : %x (%d) \n", crtc_index, crtc_index, data, data);
