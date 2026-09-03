@@ -73,6 +73,32 @@ typedef struct {
     uint8_t  palette[16];  // already packed for the ladder
 } vgacard_frame_t;
 
+/*
+ * The text screen's shape, as the card has it.
+ *
+ * A VGA CRTC does not mean what a 6845 does. Its horizontal register
+ * counts from zero, so eighty columns is 79; its vertical display end
+ * lives in register 0x12 with two more bits scattered through the
+ * overflow register at 0x07, where a 6845 simply has a row count; and
+ * its 0x09 carries the maximum scan line in the low five bits with other
+ * things above. Handing those raw to a renderer that expects a 6845 puts
+ * every row one character short and the screen shears.
+ *
+ * False when the card has not been programmed yet, so a caller can leave
+ * whatever the firmware set up for itself alone.
+ */
+typedef struct {
+    uint8_t  columns;
+    uint8_t  rows;
+    uint8_t  char_height;
+    uint16_t start_addr;    // in characters
+    uint16_t cursor_addr;   // in characters
+    uint8_t  cursor_start;  // CRTC 0x0A, as written
+    uint8_t  cursor_end;    // CRTC 0x0B, as written
+} vgacard_text_t;
+
+bool vgacard_text_geometry(vgacard_text_t *out);
+
 // Read the card's current state. Called once a frame, not per scanline.
 void vgacard_get_frame(vgacard_frame_t *out);
 

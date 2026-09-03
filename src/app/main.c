@@ -493,6 +493,36 @@ bool handleScancode(const uint8_t ps2scancode) {
             vga_frame = next_frame;
 
             /*
+             * In text mode the card is the one being programmed, so the
+             * 6845 model follows it rather than the other way round.
+             *
+             * The video BIOS at 0xC0000 drives a VGA CRTC, whose
+             * registers do not mean what a 6845's do -- eighty columns
+             * reads as 79, and the row count is not held in any register
+             * a 6845 has. The text renderer works in 6845 terms, so the
+             * shape is translated here once a frame rather than teaching
+             * every renderer two dialects.
+             */
+            if (vga_frame.submode == 0) {
+                vgacard_text_t t;
+                if (vgacard_text_geometry(&t)) {
+                    mc6845.r.h_displayed       = t.columns;
+                    mc6845.r.v_displayed       = t.rows;
+                    mc6845.r.max_scanline_addr = (uint8_t)(t.char_height - 1u);
+                    mc6845.r.cursor_start      = t.cursor_start;
+                    mc6845.r.cursor_end        = t.cursor_end;
+                    mc6845.vram_offset         = (uint32_t)t.start_addr << 1;
+                    mc6845.cursor_x            = t.cursor_addr % t.columns;
+                    mc6845.cursor_y            = t.cursor_addr / t.columns;
+                    // Re-select the video mode when the shape changes:
+                    // nothing else will, because the video BIOS does not
+                    // touch the CGA registers that normally trigger it.
+                    static uint8_t last_cols;
+                    if (t.columns != last_cols) { last_cols = t.columns; cga.updated = true; }
+                }
+            }
+
+            /*
              * A change of card mode has to drive the selection below, and
              * nothing else would: that block runs when a CGA port is
              * written, and programming the EGA touches none. Without this
@@ -546,7 +576,16 @@ bool handleScancode(const uint8_t ps2scancode) {
                  * while DOS wrote text to 0xB8000. The machine looked
                  * dead when it was running perfectly.
                  */
-                if (settings.vga && cga.vga_mode_request && vga_frame.submode) {
+                /*
+                 * The card's own state, which is authoritative again now
+                 * that a real video BIOS programs it. The extra test on
+                 * cga.vga_mode_request existed because the only thing
+                 * that set a graphics mode was our option ROM writing
+                 * port 0x3DC, and the card stayed programmed for it
+                 * afterwards; the video BIOS puts the card back to text
+                 * itself, so the submode alone is the truth.
+                 */
+                if (settings.vga && vga_frame.submode) {
                     // The card knows what it was programmed for; width and
                     // height come from its own CRTC rather than the mode
                     // number, so a program that adjusts the geometry gets
@@ -641,7 +680,16 @@ bool handleScancode(const uint8_t ps2scancode) {
                         }
                     }
                 } else {
-                    videomode = cga.port3D8 & 1 ? TEXTMODE_80x25_COLOR : TEXTMODE_40x25_COLOR;
+                    /*
+                     * How wide the screen is comes from the CRTC, not
+                     * from bit 0 of port 0x3D8. That bit is a CGA mode
+                     * register and the video BIOS never writes it, so
+                     * reading it left an eighty column screen being drawn
+                     * forty columns wide with every pixel doubled. The
+                     * CRTC's column count is right for either card.
+                     */
+                    videomode = mc6845.r.h_displayed > 40
+                                    ? TEXTMODE_80x25_COLOR : TEXTMODE_40x25_COLOR;
                     graphics_set_bgcolor(cga.port3D9 & 0xF);
                     for (int i = 0; i < 16; i++) {
                         graphics_set_palette(i, cga_palette[i]);

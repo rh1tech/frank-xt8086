@@ -157,6 +157,34 @@ uint8_t vgacard_mem_read(const uint32_t addr) {
 
 const uint32_t *vgacard_planes(void) { return (const uint32_t *)vga_ram; }
 
+bool vgacard_text_geometry(vgacard_text_t *out) {
+    if (!vga) return false;
+
+    const uint8_t *cr = vga->cr;
+    const uint8_t  ch = (uint8_t)((cr[0x09] & 0x1Fu) + 1u);
+    if (ch == 0) return false;
+
+    const uint16_t vde = (uint16_t)(cr[0x12]
+                       | ((cr[0x07] & 0x02u) << 7)
+                       | ((cr[0x07] & 0x40u) << 3));
+
+    const uint16_t cols = (uint16_t)cr[0x01] + 1u;
+    const uint16_t rows = (uint16_t)((vde + 1u) / ch);
+
+    // Nothing plausible means nothing programmed; say so rather than
+    // hand back a shape that would tear the screen up.
+    if (cols < 20u || cols > 132u || rows < 10u || rows > 60u) return false;
+
+    out->columns      = (uint8_t)cols;
+    out->rows         = (uint8_t)rows;
+    out->char_height  = ch;
+    out->start_addr   = (uint16_t)(cr[0x0C] << 8 | cr[0x0D]);
+    out->cursor_addr  = (uint16_t)(cr[0x0E] << 8 | cr[0x0F]);
+    out->cursor_start = cr[0x0A];
+    out->cursor_end   = cr[0x0B];
+    return true;
+}
+
 /*
  * Pack a six-bit-per-channel colour the way the ladder wants it.
  *

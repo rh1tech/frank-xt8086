@@ -10,6 +10,7 @@ extern i8259_s i8259;   // state.c; POST masks it, see memory_read
 extern uint8_t BIOS[];
 extern uint8_t IDE[];
 extern uint8_t XTROM[];
+extern uint8_t VGABIOS[];
 
 // Универсальная функция записи с поддержкой BHE (8/16-bit operations)
 __always_inline static void write_to(uint8_t *destination, const uint32_t address,
@@ -115,6 +116,11 @@ __force_inline static uint16_t memory_read(const uint32_t address, const bool bh
                    (uint16_t)vgacard_mem_read(off + 1) << 8;
         return a0 ? (uint16_t)vgacard_mem_read(off + 1) << 8
                   : (uint16_t)vgacard_mem_read(off);
+    }
+
+    // The video BIOS, 32K at C000-C7FF. See tools/vgabios/README.md.
+    if ((address - 0xC0000) < 0x8000) {
+        return *(uint16_t *)&VGABIOS[address - 0xC0000];
     }
 
     if ((address - 0xC8000) < 8192) {

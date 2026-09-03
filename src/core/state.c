@@ -22,6 +22,11 @@
 IMPORT_BIN("roms/GLABIOS.ROM", BIOS);
 IMPORT_BIN("roms/ide_xt.bin", IDE);
 
+// The card's own BIOS at 0xC0000, without which GLaBIOS answers every
+// INT 10h call in a planar mode out of its CGA code. See
+// tools/vgabios/README.md for what it is and why it is built, not taken.
+IMPORT_BIN("roms/vgabios.bin", VGABIOS);
+
 // Our own option ROM at D000:0000 -- the clock, and the hook point for
 // anything else that needs to run inside the guest. Built from
 // tools/rom/xtrom.asm by tools/rom/build.py.

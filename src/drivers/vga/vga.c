@@ -374,6 +374,18 @@ void __time_critical_func() vga_scanline_dma() {
             uint8_t char_scanlines = mc6845.r.max_scanline_addr;
             const uint8_t glyph_line = y & char_scanlines;
             char_scanlines++;
+
+            /*
+             * Sixteen-line characters mean the 8x16 font.
+             *
+             * A CGA draws eight-line characters and a VGA in text mode
+             * draws sixteen, and the glyph fetch multiplies by the
+             * height: at sixteen it was indexing an eight-line font well
+             * past its end, so every character on screen came out of
+             * whatever followed it in memory.
+             */
+            const uint8_t *__restrict fnt =
+                    (char_scanlines >= 16u) ? font_8x16 : font_8x8;
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
@@ -390,7 +402,7 @@ void __time_critical_func() vga_scanline_dma() {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
-                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                uint8_t glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
                 dword >>= 8;
                 uint8_t color = dword;
                 if (unlikely(mc6845.cursor_blink_state && (char_x == cursor_char_x))) {
@@ -412,7 +424,7 @@ void __time_critical_func() vga_scanline_dma() {
 
                 // Второй символ из пачки
                 dword >>= 8;
-                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
                 dword >>= 8;
                 color = dword;
                 if (unlikely(mc6845.cursor_blink_state && ((char_x + 1) == cursor_char_x))) {
@@ -440,6 +452,18 @@ void __time_critical_func() vga_scanline_dma() {
             uint8_t char_scanlines = mc6845.r.max_scanline_addr;
             const uint8_t glyph_line = y & char_scanlines;
             char_scanlines++;
+
+            /*
+             * Sixteen-line characters mean the 8x16 font.
+             *
+             * A CGA draws eight-line characters and a VGA in text mode
+             * draws sixteen, and the glyph fetch multiplies by the
+             * height: at sixteen it was indexing an eight-line font well
+             * past its end, so every character on screen came out of
+             * whatever followed it in memory.
+             */
+            const uint8_t *__restrict fnt =
+                    (char_scanlines >= 16u) ? font_8x16 : font_8x8;
             const uint8_t screen_y = y / char_scanlines;
 
             //указатель откуда начать считывать символы
@@ -458,7 +482,7 @@ void __time_critical_func() vga_scanline_dma() {
                 uint32_t dword = *text_buffer_line++;
 
                 // Первый символ из пачки
-                uint8_t glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                uint8_t glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
                 dword >>= 8;
                 uint8_t color = dword;
                 if (unlikely(mc6845.cursor_blink_state && (char_x == cursor_char_x))) {
@@ -474,7 +498,7 @@ void __time_critical_func() vga_scanline_dma() {
 
                 // Второй символ из пачки
                 dword >>= 8;
-                glyph_pixels = font_8x8[(dword & 0xFF) * char_scanlines + glyph_line];
+                glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
                 dword >>= 8;
                 color = dword;
 

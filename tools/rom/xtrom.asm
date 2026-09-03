@@ -162,15 +162,19 @@ init:
         mov     word [1Ah*4], int1a
         mov     [1Ah*4+2], cs
 
-        ; INT 10h, for one function only. See int10 for why.
-        mov     ax, BDA_SEG
-        mov     es, ax
-        mov     ax, [10h*4]
-        mov     [es:BDA_OLD_INT10], ax
-        mov     ax, [10h*4+2]
-        mov     [es:BDA_OLD_INT10+2], ax
-        mov     word [10h*4], int10
-        mov     [10h*4+2], cs
+        ; INT 10h is not hooked any more.
+        ;
+        ; It was, because GLaBIOS's own INT 10h is CGA and MDA only and
+        ; the EGA and VGA modes had to be reached somehow: the hook caught
+        ; four mode numbers and played register tables into the card
+        ; through port 0x3DC. That set a mode but was never a video BIOS,
+        ; and every other function -- write a character, scroll, read the
+        ; cell under the cursor -- still landed in code written for a CGA.
+        ;
+        ; There is a real video BIOS at 0xC0000 now, scanned before this
+        ; ROM and holding INT 10h by the time we run. Hooking it here
+        ; would put this in front of the card's own BIOS for the very
+        ; calls it exists to answer.
 
         ; INT 2Fh is deliberately NOT hooked here.
         ;
