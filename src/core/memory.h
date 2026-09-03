@@ -1,5 +1,7 @@
 #pragma once
 #include "state.h"
+
+extern i8259_s i8259;   // state.c; POST masks it, see memory_read
 #include "setup_menu.h"
 
 // ============================================================================
@@ -46,6 +48,33 @@ extern uint32_t ram_limit;
 // ============================================================================
 __force_inline static uint16_t memory_read(const uint32_t address, const bool bhe,
                                           const uint32_t a0) {
+    /*
+     * 0040:0072 is the warm-boot flag, and POST reading it is the one
+     * moment we can recognise the BIOS starting up.
+     *
+     * It matters because of what GLaBIOS does four instructions later.
+     * To save space it points SP at a table of return addresses inside
+     * its own ROM -- `mov sp, 0E115h` at F000:E10F -- and a stack in ROM
+     * works only while nothing can interrupt. Writes to it are discarded
+     * and the matching reads come back as whatever byte the ROM holds.
+     *
+     * A hardware reset leaves the interrupt controller masked and the
+     * timer stopped, so on a real machine nothing can. Reaching POST any
+     * other way -- Ctrl+Alt+Del, or a guest that has lost its footing --
+     * clears neither, and a timer tick landing in that window pushes a
+     * return frame into nowhere and pops ROM bytes back in its place. The
+     * flags come back with TF set and IF clear, and the machine spends
+     * the rest of its life single-stepping one instruction with
+     * interrupts off: running, drawing nothing, answering no key.
+     *
+     * Masking here is what the reset line would have done. POST programs
+     * the controller for itself a moment later.
+     */
+    if (unlikely(address == 0x472u)) {
+        i8259.interrupt_mask_register    = 0xFFu;
+        i8259.interrupt_request_register = 0;
+        i8259.in_service_register        = 0;
+    }
     if (address < ram_limit) {
         return *(uint16_t *)&RAM[address];
     }
