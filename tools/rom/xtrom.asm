@@ -215,6 +215,8 @@ init:
 ; Everything else chains to the original handler untouched.
 ; ===========================================================================
 int10:
+        cmp     ah, 12h
+        je      .altselect
         cmp     ah, 00h
         jne     .chain
         cmp     al, 13h
@@ -240,6 +242,35 @@ int10:
         jne     .chain
         mov     al, 03h                 ; MDA text on a machine with one display
         jmp     short .chain
+
+; ---------------------------------------------------------------------------
+; INT 10h AH=12h BL=10h - "return EGA information".
+;
+; The one call every EGA-aware program makes to find out whether an EGA is
+; there at all. It is answered here because GLaBIOS is an XT BIOS written
+; for a CGA and has no function 12h: the call falls through its dispatch
+; and returns with BL still 10h, which is precisely the "no EGA" answer.
+;
+; Dangerous Dave 2 asks this before it will use a single EGA mode. Told no,
+; it sets mode 0Dh anyway, clears the screen and then waits -- a running
+; CPU, a correct planar mode, and nothing ever drawn into it. The card is
+; real and the modes work; only this answer was missing.
+;
+; The reply describes what this machine actually has: a colour display at
+; 3Dx, the full 256K the card is given in chipset/vgacard.h, no feature
+; connector, and the switch setting for an enhanced colour monitor.
+;
+; Any other subfunction of 12h chains, so the BIOS keeps whatever it does
+; provide.
+; ---------------------------------------------------------------------------
+.altselect:
+        cmp     bl, 10h
+        jne     .chain
+        mov     bh, 0                   ; colour, registers at 3Dx
+        mov     bl, 3                   ; 256K of display memory
+        mov     ch, 0                   ; feature connector: nothing wired
+        mov     cl, 9                   ; switches: enhanced colour display
+        iret
 
 ; ---------------------------------------------------------------------------
 ; The EGA and VGA graphics modes: 0Dh, 0Eh, 10h and 13h.
