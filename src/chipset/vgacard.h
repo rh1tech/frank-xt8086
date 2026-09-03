@@ -38,25 +38,24 @@
  * the one nothing here asks for.
  */
 /*
- * 128K, and not sharing its first byte with the text page.
+ * 256K -- 65536 display addresses of four planes, which is what a VGA has
+ * and what software expects to reach.
  *
- * The card's memory and the CGA text buffer are both video_memory, and
- * both used to start at offset 0. They are not the same thing laid out
- * the same way: a text cell is two bytes, a character then an attribute,
- * while the card interleaves four planes a byte at a time. Plane 2 of
- * display address n therefore lands on the character byte of text cell
- * 2n+1 -- so when the video BIOS loaded its font into plane 2, as it does
- * at every text mode set, it wrote over every second character on screen.
- * That is the alternating garbage the POST screen was full of.
+ * It cannot be less. Dangerous Dave 2 caches its tiles in off-screen
+ * video memory well above the visible pages, and at 192K those addresses
+ * wrap back over the picture: the platforms and walls come apart into
+ * vertical stripes while everything drawn from the low pages stays
+ * perfect.
  *
- * The card now starts above the 64K the CGA, Tandy and Hercules paths
- * use and takes the rest, which is 49152 display addresses. 128K was not
- * enough: it stops at 32768, and a game double buffering above that gets
- * its second page wrapped back over its first -- garbage over a moving
- * sprite, which is how it showed.
+ * Which leaves no room for a separate CGA text page, and that is fine,
+ * because a VGA does not have one. The text screen *is* this memory --
+ * the character in plane 0, the attribute in plane 1 -- so 0xB8000 is
+ * routed here and the renderer reads cells from the planes. One buffer,
+ * nothing to overlap, and the video BIOS can load its font into plane 2
+ * without writing over every second character on screen.
  */
-#define VGACARD_RAM_SIZE  (192u * 1024u)
-#define VGACARD_RAM_BASE  (64u * 1024u)   // clear of the text page
+#define VGACARD_RAM_SIZE  (256u * 1024u)
+#define VGACARD_RAM_BASE  (0u)
 
 void     vgacard_init(void);
 

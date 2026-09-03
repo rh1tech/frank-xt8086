@@ -21,6 +21,17 @@
 uint8_t *vga_text_source = NULL;
 
 /*
+ * Text read from the card's planes rather than from a buffer of its own.
+ *
+ * A VGA has no separate text page: the character is plane 0 and the
+ * attribute is plane 1 of the same memory the graphics modes use, so a
+ * cell is four bytes apart rather than two. Set while the card is the
+ * display; the on-screen display still overrides both by pointing
+ * vga_text_source at its own buffer.
+ */
+bool vga_text_from_card = false;
+
+/*
  * Bit- and byte-reverse, without arm_acle.h.
  *
  * This used __rbit() and __rev() out of <arm_acle.h>. Arm GNU Toolchain
@@ -416,6 +427,11 @@ void __time_critical_func() vga_scanline_dma() {
 
             //указатель откуда начать считывать символы
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            const uint32_t *__restrict cells =
+                    (vga_text_from_card && !vga_text_source)
+                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
+                        : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
 
@@ -425,7 +441,17 @@ void __time_critical_func() vga_scanline_dma() {
             const int cursor_char_x = is_cursor_line_active ? mc6845.cursor_x : -1;
 
             for (int char_x = 0; char_x < mc6845.r.h_displayed; char_x += 2) {
-                uint32_t dword = *text_buffer_line++;
+                uint32_t dword;
+                if (cells) {
+                    // One cell per plane-word: character in byte 0,
+                    // attribute in byte 1. Two of them make the pair the
+                    // rest of this loop expects.
+                    const uint32_t c0 = cells[0], c1 = cells[1];
+                    cells += 2;
+                    dword = (c0 & 0xFFFFu) | ((c1 & 0xFFFFu) << 16);
+                } else {
+                    dword = *text_buffer_line++;
+                }
 
                 // Первый символ из пачки
                 uint8_t glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
@@ -494,6 +520,11 @@ void __time_critical_func() vga_scanline_dma() {
 
             //указатель откуда начать считывать символы
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            const uint32_t *__restrict cells =
+                    (vga_text_from_card && !vga_text_source)
+                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
+                        : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[
                 (mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)) & 0x3FFF];
             __builtin_prefetch(text_buffer_line);
@@ -505,7 +536,17 @@ void __time_critical_func() vga_scanline_dma() {
             const int cursor_char_x = is_cursor_line_active ? mc6845.cursor_x : -1;
 
             for (int char_x = 0; char_x < mc6845.r.h_displayed; char_x += 2) {
-                uint32_t dword = *text_buffer_line++;
+                uint32_t dword;
+                if (cells) {
+                    // One cell per plane-word: character in byte 0,
+                    // attribute in byte 1. Two of them make the pair the
+                    // rest of this loop expects.
+                    const uint32_t c0 = cells[0], c1 = cells[1];
+                    cells += 2;
+                    dword = (c0 & 0xFFFFu) | ((c1 & 0xFFFFu) << 16);
+                } else {
+                    dword = *text_buffer_line++;
+                }
 
                 // Первый символ из пачки
                 uint8_t glyph_pixels = fnt[(dword & 0xFF) * char_scanlines + glyph_line];
@@ -760,8 +801,7 @@ void __time_critical_func() vga_scanline_dma() {
             const uint32_t stride = vga_frame.line_offset > 0
                     ? (uint32_t)vga_frame.line_offset * 2u : 80u;
             uint32_t offset = vga_frame.start_addr + (uint32_t)y * stride;
-            // Not a mask: the card's size is not a power of two.
-            if (offset >= VGACARD_RAM_SIZE / 4u) offset -= VGACARD_RAM_SIZE / 4u;
+            offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
 
             const uint32_t *__restrict src = vgacard_planes() + offset;
             for (int i = 0; i < 80; i++) {
@@ -813,8 +853,7 @@ void __time_critical_func() vga_scanline_dma() {
                 offset = (src_line - (uint32_t)vga_frame.line_compare) * stride;
             else
                 offset = (uint32_t)vga_frame.start_addr + src_line * stride;
-            // Not a mask: the card's size is not a power of two.
-            if (offset >= VGACARD_RAM_SIZE / 4u) offset -= VGACARD_RAM_SIZE / 4u;
+            offset &= (VGACARD_RAM_SIZE / 4u) - 1u;
 
             const uint32_t *__restrict src = vgacard_planes() + offset;
             const uint8_t  *__restrict pal = vga_frame.palette;

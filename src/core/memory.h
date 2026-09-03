@@ -80,6 +80,26 @@ __force_inline static uint16_t memory_read(const uint32_t address, const bool bh
         return *(uint16_t *)&RAM[address];
     }
 
+    /*
+     * The text page belongs to the card when there is one.
+     *
+     * On a VGA the screen at 0xB8000 is the card's own memory -- the
+     * character in plane 0, the attribute in plane 1 -- not a separate
+     * buffer beside it. Routing it here is what lets the card keep all
+     * 256K: there is no second copy to collide with, so the video BIOS
+     * can load its font into plane 2 without landing on every other
+     * character cell. The card works out which window it is answering
+     * for from its own graphics controller registers.
+     */
+    if (settings.vga && (address - 0xA0000) < 0x20000) {
+        const uint32_t coff = address - 0xA0000;
+        if (likely(!(bhe | a0)))
+            return (uint16_t)vgacard_mem_read(coff) |
+                   (uint16_t)vgacard_mem_read(coff + 1) << 8;
+        return a0 ? (uint16_t)vgacard_mem_read(coff + 1) << 8
+                  : (uint16_t)vgacard_mem_read(coff);
+    }
+
     if ((address - 0xB8000) < 0x8000) {
         // + the Tandy CPU page, which is zero unless something set it.
         return *(uint16_t *)&VIDEORAM[(cga.tandy_cpu_base + (address & 0x7FFF))
@@ -161,6 +181,18 @@ __force_inline static uint16_t memory_read(const uint32_t address, const bool bh
 __force_inline static void memory_write(const uint32_t address, const uint16_t data, const bool bhe) {
     if (address < ram_limit) {
         write_to(RAM, address, data, bhe);
+        return;
+    }
+
+    if (settings.vga && (address - 0xA0000) < 0x20000) {
+        const uint32_t coff = address - 0xA0000;
+        const uint32_t cA0  = address & 1;
+        if (likely(!(bhe | cA0))) {
+            vgacard_mem_write(coff,     (uint8_t)data);
+            vgacard_mem_write(coff + 1, (uint8_t)(data >> 8));
+        } else {
+            vgacard_mem_write(coff, cA0 ? (uint8_t)(data >> 8) : (uint8_t)data);
+        }
         return;
     }
 

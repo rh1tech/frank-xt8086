@@ -506,6 +506,8 @@ bool handleScancode(const uint8_t ps2scancode) {
             if (vga_frame.submode == 0) {
                 vgacard_text_t t;
                 if (vgacard_text_geometry(&t)) {
+                    extern bool vga_text_from_card;
+                    vga_text_from_card = true;
                     mc6845.r.h_displayed       = t.columns;
                     mc6845.r.v_displayed       = t.rows;
                     mc6845.r.max_scanline_addr = (uint8_t)(t.char_height - 1u);
