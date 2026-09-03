@@ -137,6 +137,38 @@ void media_reload(void) {
            (fdd_media_mask & 2) ? settings.fdb : "-",
            ide.disk_image ? settings.hdd : "-");
 }
+
+/*
+ * Everything settings decides once, at boot, rather than every frame.
+ *
+ * Most of SETUP takes effect on its own: the mode a game gets is read
+ * from settings.vga/hercules/tandy_enabled live, every time the video
+ * path asks. This function exists for the handful of fields that are not
+ * read live, because what they decide has to be settled before anything
+ * downstream can be built on it -- the BIOS counts memory once, at its
+ * own boot, against whatever ram_limit says at that moment; sound was
+ * turned on or off once, at audio_init() time.
+ *
+ * Called once during the normal boot sequence, and again from
+ * osd_settings_menu() in ui/osd.c after a live change, right before it
+ * resets the 8086 -- so the boot that follows sees this run's numbers
+ * rather than the previous session's.
+ */
+void apply_boot_time_settings(void) {
+    audio_set_enabled(settings.sound);
+
+    /*
+     * VGA takes precedence: its window at 0xA0000 is below Hercules', so
+     * claiming it covers both. That leaves the 640K a standard PC has.
+     */
+    ram_limit = settings.vga       ? 0xA0000u
+              : settings.hercules  ? 0xB0000u
+                                   : RAM_SIZE;
+
+    // A live change may have edited a drive path as well as a video
+    // setting, and there is no cheaper way to tell than to just redo it.
+    media_reload();
+}
 FATFS fs;
 
 // How long the splash is held before booting on its own. Long enough to
@@ -192,35 +224,35 @@ static inline void pic_init(void) {
  * makes it the one place a host hot key can be taken out of the stream
  * before the guest ever sees it.
  *
- * Ctrl+Alt+F1 opens the drive menu. The modifiers are tracked from the
- * scancodes themselves because that is all the HID layer hands us: make
- * and break codes, no separate modifier state.
+ * Win+F11 opens the drive menu; Win+F12 opens SETUP live. Win is tracked
+ * at the HID layer, in drivers/usbhid/hid_app.c, because it is never
+ * translated to an XT scancode at all -- there is no key for it on a
+ * real XT keyboard, so is_win_down() is the only trace it leaves.
+ *
+ * That is also why this chord needed no modifier tracking of its own,
+ * unlike the Ctrl+Alt+F1 it replaces: Ctrl and Alt are real keys the
+ * guest has to be told about the moment they go down, which is what made
+ * closing that menu have to fake their releases on the way out. Win
+ * never reaches the guest, so there is nothing to fake here.
  */
-static bool ctrl_down, alt_down;
 volatile bool osd_requested;
+volatile bool settings_requested;
 
 bool handleScancode(const uint8_t ps2scancode) {
     if (ps2scancode == 0x00) return false; // Ignore unknown keys
 
-    switch (ps2scancode) {
-        case SC_CTRL_MAKE:  ctrl_down = true;  break;
-        case SC_CTRL_BREAK: ctrl_down = false; break;
-        case SC_ALT_MAKE:   alt_down  = true;  break;
-        case SC_ALT_BREAK:  alt_down  = false; break;
-        default: break;
-    }
-
-    if (ctrl_down && alt_down && ps2scancode == SC_F1) {
-        // Swallowed: the guest never learns this key was pressed, which
-        // is the point -- otherwise DOS would act on an F1 as well.
-        osd_requested = true;
+    if (is_win_down() && (ps2scancode == SC_F11 || ps2scancode == SC_F12)) {
+        // Swallowed: the guest never learns either key was pressed,
+        // which is the point -- otherwise DOS would act on it too.
+        if (ps2scancode == SC_F11) osd_requested = true;
+        else                       settings_requested = true;
         return true;
     }
 
     current_scancode = ps2scancode;
 
-    // While the menu is up the keystrokes are the menu's, so the guest is
-    // not told about them. It sees a keyboard nobody touched.
+    // While a menu is up the keystrokes are its, so the guest is not
+    // told about them. It sees a keyboard nobody touched.
     if (!osd_active()) i8259_interrupt(1);   // IRQ1
     return true;
 }
@@ -360,19 +392,7 @@ bool handleScancode(const uint8_t ps2scancode) {
 
     // After SETUP, so a change made there takes effect on this boot
     // rather than the next one.
-    audio_set_enabled(settings.sound);
-
-    // Before core 1 releases the 8086, so the BIOS counts the right
-    // figure: Hercules takes 0xB0000..0xB7FFF for its framebuffer.
-    /*
-     * VGA takes precedence: its window at 0xA0000 is below Hercules', so
-     * claiming it covers both. That leaves the 640K a standard PC has.
-     */
-    ram_limit = settings.vga       ? 0xA0000u
-              : settings.hercules  ? 0xB0000u
-                                   : RAM_SIZE;
-
-    media_reload();
+    apply_boot_time_settings();
 
     // A short two-note chime, so "it booted" is audible from across the
     // bench without watching the screen. Through the mixer now, like
@@ -453,6 +473,11 @@ bool handleScancode(const uint8_t ps2scancode) {
             osd_drive_menu();
         }
 
+        if (settings_requested) {
+            settings_requested = false;
+            osd_settings_menu();   // reboots the 8086 if anything was saved
+        }
+
         // Проверка состояния видеоадаптера и обработка клавиатуры
         if (absolute_time_diff_us(next_frame, get_absolute_time()) >= 0) {
             keyboard_tick();
@@ -519,10 +544,28 @@ bool handleScancode(const uint8_t ps2scancode) {
              * shape is translated here once a frame rather than teaching
              * every renderer two dialects.
              */
+            /*
+             * Set every frame, both ways -- not just to true.
+             *
+             * This used to be assigned only when geometry read back
+             * successfully, which means it was never assigned back to
+             * false: turn VGA off in SETUP and the flag from the last
+             * frame VGA was on stayed true, since nothing about turning
+             * the card off touches RAM that reset_cpu() does not reach
+             * either -- that pin restarts the 8086, not this firmware's
+             * own variables. The renderer went on taking text from the
+             * card's now-stale memory while every write, correctly, was
+             * going to the plain CGA buffer instead: the right shape,
+             * because geometry still came from wherever this flag
+             * pointed, and every glyph wrong, because that stopped being
+             * where DOS was writing.
+             */
+            extern bool vga_text_from_card;
+            vga_text_from_card = false;
+
             if (settings.vga && vga_frame.submode == 0) {
                 vgacard_text_t t;
                 if (vgacard_text_geometry(&t)) {
-                    extern bool vga_text_from_card;
                     vga_text_from_card = true;
                     mc6845.r.h_displayed       = t.columns;
                     mc6845.r.v_displayed       = t.rows;

@@ -94,8 +94,25 @@ static void kbd_raw_key(int usb_code, int is_release) {
 static int             repeat_code = -1;
 static absolute_time_t repeat_due;
 
+/*
+ * Left and right GUI/Windows key, as the modifier scan numbers them:
+ * bit 3 and bit 7 of the HID modifier byte, offset by 0xE0 the same way
+ * every other modifier is. conversion[] has no entry for either -- there
+ * is no XT scancode for a key that never existed on an XT keyboard -- so
+ * kbd_raw_key() below is a harmless no-op for them and this is the only
+ * effect either one has.
+ */
+#define USB_LGUI 0xE3
+#define USB_RGUI 0xE7
+
+static bool win_down;
+
+bool is_win_down(void) { return win_down; }
+
 static void kbd_raw_key_down(int usb_code) {
     kbd_raw_key(usb_code, 0);
+
+    if (usb_code == USB_LGUI || usb_code == USB_RGUI) win_down = true;
 
     // Modifiers arrive here as 0xE0..0xE7 from the modifier scan. Shift
     // repeating on its own would be meaningless and would steal the
@@ -108,6 +125,8 @@ static void kbd_raw_key_down(int usb_code) {
 
 static void kbd_raw_key_up(int usb_code) {
     kbd_raw_key(usb_code, 1);
+
+    if (usb_code == USB_LGUI || usb_code == USB_RGUI) win_down = false;
 
     if (usb_code == repeat_code) repeat_code = -1;
 }

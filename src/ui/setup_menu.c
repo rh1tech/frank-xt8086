@@ -579,8 +579,9 @@ static void clock_editor(void) {
     }
 }
 
-void setup_menu(void) {
+bool setup_menu(void) {
     const settings_s backup = settings;
+    bool saved = false;
 
     const int wx = (TEXTMODE_COLS - SETUP_W) / 2;
     const int wy = (TEXTMODE_ROWS - SETUP_H) / 2 - 1;
@@ -649,6 +650,7 @@ void setup_menu(void) {
             case 0x1C:      // ENTER
                 if (mi->type == EXIT) {
                     save_settings();
+                    saved   = true;
                     running = false;
                 } else if (mi->type == ARRAY) {
                     cycle_array(mi, +1);
@@ -672,4 +674,5 @@ void setup_menu(void) {
     }
 
     ui_clear(UI_ATTR(UI_LIGHTGRAY, UI_BLACK));
+    return saved;
 }

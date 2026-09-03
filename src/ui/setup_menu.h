@@ -156,4 +156,7 @@ bool save_settings(void);
 bool load_settings(void);
 
 // Главная функция SETUP меню
-void setup_menu(void);
+// True if the operator saved (EXIT), false if they discarded (ESC) --
+// which is what a caller needs to know before deciding whether anything
+// downstream has to react to a change. See osd_settings_menu().
+bool setup_menu(void);

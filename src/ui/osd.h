@@ -31,8 +31,9 @@
  * crashed the machine. Stopping the guest removes the concurrency rather
  * than trying to survive it. See bus_pause() in core/cpu_bus.c.
  *
- * Opened by Ctrl+Alt+F1, which the keyboard path swallows rather than
- * passing on -- see handleScancode() in app/main.c.
+ * Opened by Win+F11, which the keyboard path swallows rather than passing
+ * on -- see handleScancode() in app/main.c. Win+F12 opens the settings
+ * menu the same way; see osd_settings_menu() below.
  */
 #pragma once
 
@@ -54,3 +55,29 @@ bool osd_active(void);
  * until the menu closes, which the guest experiences as a slow disk.
  */
 void osd_drive_menu(void);
+
+/*
+ * Open SETUP live, over a running guest, and reboot if anything changed.
+ *
+ * SETUP itself does not know it is being called this way: it is the same
+ * function the splash screen runs before the 8086 exists, just given the
+ * OSD's private buffer to draw into instead of VIDEORAM and the guest
+ * paused instead of not yet started. See setup_menu() in ui/setup_menu.h.
+ *
+ * Most of what SETUP edits -- the drive images, the clock, sound on or
+ * off -- takes effect on its own the moment settings changes, the same
+ * as it always has. A few fields do not: the RAM ceiling a VGA or
+ * Hercules card takes, and the 8086's own clock speed, are read once at
+ * boot, before this function or anything like it exists. DOS counts
+ * memory once, at its own boot, and would not notice a ceiling moving
+ * under it.
+ *
+ * So the choice here is not "reboot on any change" -- it is "reboot",
+ * full stop, whenever anything was saved, because this function has no
+ * way to tell a memory-affecting change from an harmless one and a
+ * reboot is cheap. reset_cpu() gives the 8086 the fresh boot those fields
+ * need; apply_boot_time_settings() in app/main.c is what recomputes them
+ * first, so the boot that follows counts memory correctly rather than
+ * against whatever ceiling the previous session left behind.
+ */
+void osd_settings_menu(void);

@@ -220,20 +220,36 @@ void osd_drive_menu(void) {
     bus_resume();
 
     /*
-     * Tell the guest that Ctrl and Alt came back up.
+     * Nothing to tell the guest here.
      *
-     * It watched them go down -- Ctrl+Alt+F1 raises IRQ1 for the two
-     * modifiers before F1 identifies the chord, and by then the guest has
-     * already been told. The releases then arrive while the menu is up,
-     * where handleScancode deliberately withholds IRQ1 so the guest does
-     * not see the menu being driven. So the makes reached it and the
-     * breaks never did, and it went on believing both keys were held: no
-     * arrow keys, and every other key doing whatever it does with Ctrl or
-     * Alt applied to it.
-     *
-     * Queued rather than written straight to current_scancode, so each
-     * one waits for the guest to acknowledge the last.
+     * The old chord was Ctrl+Alt+F1, and Ctrl and Alt are real keys the
+     * guest is told about the moment they go down -- so closing the menu
+     * had to fake their releases, since the presses had reached it but
+     * handleScancode withholds everything typed while the menu is up.
+     * Win+F11 has no such problem: Win is never translated to an XT
+     * scancode at all, so the guest never learned it was held in the
+     * first place.
      */
-    keyboard_inject(SC_CTRL_BREAK);
-    keyboard_inject(SC_ALT_BREAK);
+}
+
+/*
+ * See osd.h for why this reboots whenever SETUP saved anything.
+ */
+void osd_settings_menu(void) {
+    extern void apply_boot_time_settings(void);   // app/main.c
+
+    bus_pause();
+    osd_open();
+
+    const bool changed = setup_menu();
+
+    osd_close();
+
+    if (changed) {
+        apply_boot_time_settings();
+        bus_resume();
+        reset_cpu();
+    } else {
+        bus_resume();
+    }
 }
