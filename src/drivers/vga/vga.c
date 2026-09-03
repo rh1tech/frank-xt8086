@@ -342,9 +342,32 @@ void __time_critical_func() vga_scanline_dma() {
      * too -- this is not a special case, it is the constant the hardware
      * actually uses.
      */
+    /*
+     * Text rows are doubled for a CGA and not for a VGA.
+     *
+     * A CGA draws eight-line characters, so twenty-five rows are two
+     * hundred source lines and each is emitted twice to fill the four
+     * hundred the frame wants. A VGA already draws sixteen, so doubling
+     * asks for eight hundred: only fourteen rows fit, and every glyph is
+     * twice as tall as it should be -- the stretched, narrow text that
+     * does not look like VGA at all.
+     *
+     * murm386's renderer says the same thing more directly, one display
+     * line per glyph line: char_row = line >> 4.
+     *
+     * Only text is judged this way. The graphics modes below work in
+     * their own units and still want the doubling.
+     */
+    const bool text_mode = graphics_mode == TEXTMODE_40x25_BW ||
+                           graphics_mode == TEXTMODE_40x25_COLOR ||
+                           graphics_mode == TEXTMODE_80x25_BW ||
+                           graphics_mode == TEXTMODE_80x25_COLOR;
+    const bool double_lines = !(text_mode && mc6845.r.max_scanline_addr >= 15);
+
     const uint32_t drawn_lines = tall
             ? (uint32_t)mc6845_mda.r.v_displayed * 4u
-            : (uint32_t)mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1) * 2u;
+            : (uint32_t)mc6845.r.v_displayed * (mc6845.r.max_scanline_addr + 1)
+              * (double_lines ? 2u : 1u);
 
     // If line index beyond prepared image area — fall back to blank
     if (unlikely(scanline >= drawn_lines)) {
@@ -353,7 +376,7 @@ void __time_critical_func() vga_scanline_dma() {
         return;
     }
     // Non-interlace: skip odd sublines and fold y
-    if (!tall && likely((mc6845.r.interlace_mode & 1) == 0)) {
+    if (!tall && double_lines && likely((mc6845.r.interlace_mode & 1) == 0)) {
         if (y & 1) {
             port3DA = 1;
             return;
