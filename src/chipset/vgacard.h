@@ -37,7 +37,7 @@
  * taking it from somewhere that also needs it, and the mode it buys is
  * the one nothing here asks for.
  */
-#define VGACARD_RAM_SIZE (128u * 1024u)
+#define VGACARD_RAM_SIZE (256u * 1024u)
 
 void     vgacard_init(void);
 
@@ -79,3 +79,5 @@ void vgacard_get_frame(vgacard_frame_t *out);
 // The copy the scanline renderer draws from, refreshed once a frame so a
 // mode change part-way down the screen cannot tear the geometry.
 extern vgacard_frame_t vga_frame;
+
+void vgacard_debug_dump(void);

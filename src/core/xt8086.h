@@ -72,6 +72,21 @@
  * It is also exactly four 16K pages, which is the unit the Tandy page
  * register counts in.
  */
+/*
+ * One buffer, shared by every display adapter.
+ *
+ * Only one of them exists at a time -- a machine has a CGA or a Tandy or
+ * a Hercules or an EGA, and SETUP says which -- so giving each its own
+ * memory meant carrying 320K to use at most 256K of it. The EGA needs the
+ * whole 256K, and it is the reason the size is what it is: its four
+ * planes are interleaved a byte at a time, so a 64K address space costs
+ * 256K of storage, and anything less silently drops writes to the upper
+ * half. Dangerous Dave 2 keeps its tiles up there.
+ *
+ * VIDEORAM is the same memory seen by the CGA, Tandy and Hercules paths,
+ * which between them never need more than 64K of it.
+ */
+#define VIDEO_MEMORY_SIZE    (256 * 1024)
 #define VIDEORAM_SIZE        (64 * 1024)   // Tandy 640x200x16 is the largest user
 
 /*

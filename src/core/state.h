@@ -36,7 +36,10 @@
 // well.
 extern uint8_t UMB[UMB_SIZE] __attribute__((aligned(4)));
 extern uint8_t RAM[RAM_SIZE] __attribute__((aligned(4)));
-extern uint8_t VIDEORAM[VIDEORAM_SIZE] __attribute__((aligned(4)));
+extern uint8_t video_memory[VIDEO_MEMORY_SIZE] __attribute__((aligned(4)));
+
+// The CGA/Tandy/Hercules view of it. See VIDEO_MEMORY_SIZE in xt8086.h.
+#define VIDEORAM video_memory
 
 typedef struct {
     uint8_t interrupt_mask_register; //mask register

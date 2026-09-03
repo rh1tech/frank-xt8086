@@ -35,7 +35,7 @@ IMPORT_BIN("roms/os.img", FLOPPY);
 
 uint8_t RAM[RAM_SIZE] __attribute__((aligned(4), section(".psram")));
 uint8_t UMB[UMB_SIZE] __attribute__((aligned(4), section(".psram")));
-uint8_t VIDEORAM[VIDEORAM_SIZE] __attribute__((aligned(4)));
+uint8_t video_memory[VIDEO_MEMORY_SIZE] __attribute__((aligned(4)));
 
 i8259_s i8259 __attribute__((aligned(4))) = {
     .interrupt_mask_register = 0xFF, // Все IRQ замаскированы

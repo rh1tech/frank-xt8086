@@ -15,9 +15,15 @@
 #include "vga.h"
 #include "vgamodes.h"
 
-// The card's memory. Four 64K planes, which is what a VGA has and what
-// murm386's vga.c indexes.
-static uint8_t vga_ram[VGACARD_RAM_SIZE] __attribute__((aligned(4)));
+/*
+ * The card's memory is the machine's one video buffer.
+ *
+ * Four 64K planes interleaved, which is what a VGA has and what
+ * murm386's vga.c indexes. It is the same array the CGA, Tandy and
+ * Hercules paths use, because only one adapter exists at a time.
+ */
+extern uint8_t video_memory[];   // core/state.c
+#define vga_ram video_memory
 
 static VGAState *vga;
 
@@ -28,11 +34,11 @@ static VGAState *vga;
 uint32_t get_uticks(void) { return (uint32_t)time_us_64(); }
 
 void vgacard_init(void) {
-    memset(vga_ram, 0, sizeof vga_ram);
+    memset(vga_ram, 0, VGACARD_RAM_SIZE);
     // No framebuffer: this machine draws from the card's memory a
     // scanline at a time, so the width and height given here only have
     // to be something vga.c will accept.
-    vga = vga_init((char *)vga_ram, (int)sizeof vga_ram, NULL, 640, 480);
+    vga = vga_init((char *)vga_ram, (int)VGACARD_RAM_SIZE, NULL, 640, 480);
 }
 
 /*
@@ -121,11 +127,19 @@ bool vgacard_set_bios_mode(const uint8_t mode) {
     }
 
     // A mode set leaves a blank screen; the card's memory is ours to clear.
-    memset(vga_ram, 0, sizeof vga_ram);
+    memset(vga_ram, 0, VGACARD_RAM_SIZE);
 
     int w = 0, h = 0;
     printf("[vga] mode %02X -> submode %d %dx%d\n",
            mode, vga_get_graphics_mode(vga, &w, &h), w, h);
+    {
+        vgacard_frame_t f; vgacard_get_frame(&f);
+        printf("[vga]  pal:");
+        for (int i = 0; i < 16; i++) printf(" %02X", f.palette[i]);
+        printf("  ar14=%02X ar0..7=", vga->ar[0x14]);
+        for (int i = 0; i < 8; i++) printf("%02X ", vga->ar[i]);
+        printf("\n");
+    }
     return true;
 }
 
@@ -137,11 +151,15 @@ uint8_t vgacard_port_read(const uint16_t port) {
     return vga ? (uint8_t)vga_ioport_read(vga, port) : 0xFFu;
 }
 
+volatile uint32_t vgacard_writes, vgacard_reads;
+
 void vgacard_mem_write(const uint32_t addr, const uint8_t value) {
+    vgacard_writes++;
     if (vga) vga_mem_write(vga, addr, value);
 }
 
 uint8_t vgacard_mem_read(const uint32_t addr) {
+    vgacard_reads++;
     return vga ? vga_mem_read(vga, addr) : 0xFFu;
 }
 
@@ -174,6 +192,31 @@ void vgacard_get_frame(vgacard_frame_t *out) {
     vga_get_palette16(vga, pal16);
     for (int i = 0; i < 16; i++)
         out->palette[i] = pack_colour(pal16[i * 3], pal16[i * 3 + 1], pal16[i * 3 + 2]);
+}
+
+/*
+ * A look at what the card is actually being asked to display: where the
+ * CRTC points, and the first few words there. Printed a few times after
+ * a mode set so the picture on screen can be checked against the memory
+ * it is supposedly drawn from.
+ */
+void vgacard_debug_dump(void) {
+    if (!vga) return;
+    const uint16_t start = vga_get_start_addr(vga);
+    const uint32_t *w = (const uint32_t *)vga_ram;
+    printf("[vga] start=%04X off=%d cr0C=%02X cr0D=%02X gr=", start,
+           vga_get_line_offset(vga), vga->cr[0x0C], vga->cr[0x0D]);
+    for (int i = 0; i < 9; i++) printf("%02X ", vga->gr[i]);
+    printf(" sr=");
+    for (int i = 0; i < 5; i++) printf("%02X ", vga->sr[i]);
+    printf("\n[vga]  @start:");
+    for (int i = 0; i < 6; i++) printf(" %08lX", (unsigned long)w[(start + i) & 0x7FFF]);
+    printf("\n[vga]  writes=%lu reads=%lu latch=%08lX",
+           (unsigned long)vgacard_writes, (unsigned long)vgacard_reads,
+           (unsigned long)vga->latch);
+    printf("\n[vga]  @0    :");
+    for (int i = 0; i < 6; i++) printf(" %08lX", (unsigned long)w[i]);
+    printf("\n");
 }
 
 bool vgacard_active(void) {
