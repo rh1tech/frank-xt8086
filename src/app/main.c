@@ -155,6 +155,25 @@ void media_reload(void) {
  * rather than the previous session's.
  */
 void apply_boot_time_settings(void) {
+    /*
+     * The three cards the rest of the firmware actually reads, derived
+     * from the one settings.video_card SETUP now edits. A real machine
+     * has one card, not some combination of these three, and independent
+     * toggles let one be left on that had no business being on with
+     * another, or all three off in the one combination that meant plain
+     * CGA -- so this is the only place any of tandy_enabled/hercules/vga
+     * is assigned.
+     *
+     * tandy_enabled is not its own choice: a Tandy is a superset of a
+     * CGA, so it comes out true whenever the card is not Hercules or
+     * VGA, on the same reasoning SETUP's own menu collapses the two into
+     * one row -- there is nothing plain CGA offers that a Tandy does
+     * not, so there is nothing to lose by always taking the superset.
+     */
+    settings.hercules       = settings.video_card == VIDEO_CARD_HERCULES;
+    settings.vga            = settings.video_card == VIDEO_CARD_VGA;
+    settings.tandy_enabled  = !settings.hercules && !settings.vga;
+
     audio_set_enabled(settings.sound);
 
     /*

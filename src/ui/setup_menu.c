@@ -55,10 +55,8 @@ static void clock_editor(void);
 static const MenuItem menu_items[] = {
     {"Machine",         .colors = {UI_YELLOW, UI_WIN_BG}},
     {"CPU frequency",    ARRAY, &settings.cpu_freq_index, nullptr, 3, {"1 MHz", "4.77 MHz", "6 MHz", "8 MHz"}},
-    {"PCjr/Tandy mode",  ARRAY, &settings.tandy_enabled,  nullptr, 1, {"No", "Yes"}},
+    {"Video card",       ARRAY, &settings.video_card,     nullptr, 2, {"CGA/Tandy", "Hercules", "EGA/VGA"}},
     {"CGA monitor",      ARRAY, &settings.composite,      nullptr, 2, {"Auto", "RGB", "Composite"}},
-    {"Hercules",         ARRAY, &settings.hercules,       nullptr, 1, {"No", "Yes"}},
-    {"VGA graphics",     ARRAY, &settings.vga,            nullptr, 1, {"No", "Yes"}},
     {"Sound",            ARRAY, &settings.sound,          nullptr, 1, {"Off", "On"}},
     {"Date and time",    ACTION, clock_text, nullptr, 0},
     {""},
@@ -197,6 +195,25 @@ bool load_settings(void) {
         temp_settings.version > SETTINGS_VERSION ||
         br < offsetof(settings_s, sound)) {
         return false;
+    }
+
+    /*
+     * A file from before video_card existed has no opinion on it, so
+     * temp_settings.video_card is still whatever the compiled-in default
+     * is -- CGA/Tandy -- regardless of what tandy_enabled, hercules or
+     * vga in that same file actually said. Left alone, the first
+     * live-settings save under this firmware would write that default
+     * back out and silently drop whatever card the file already named.
+     *
+     * Precedence matches app/main.c's own: VGA over Hercules. Whether the
+     * old file had tandy_enabled set or not makes no difference here --
+     * both land on VIDEO_CARD_CGA_TANDY, because that is the one choice
+     * that used to be two.
+     */
+    if (temp_settings.version < 6) {
+        temp_settings.video_card = temp_settings.vga       ? VIDEO_CARD_VGA
+                                  : temp_settings.hercules  ? VIDEO_CARD_HERCULES
+                                                             : VIDEO_CARD_CGA_TANDY;
     }
 
     settings = temp_settings;

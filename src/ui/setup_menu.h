@@ -49,8 +49,13 @@ typedef struct __attribute__((__packed__)) {
  * therefore true. Hercules switched itself on for anyone with an older
  * config, took 32K of memory, and pointed its framebuffer at the text
  * page. Every field after it was off by one as well.
+ *
+ * 6 added video_card. It only ever grows at the end, same as every field
+ * since 3, so this is safe the same way -- but load_settings() also has
+ * to derive it for anyone loading a version-5-or-earlier file, since
+ * their file has no opinion on it at all. See the migration there.
  */
-#define SETTINGS_VERSION 5
+#define SETTINGS_VERSION 6
 
 // The oldest layout load_settings() will still accept. Fields added since
 // then sit at the end of the struct and keep their defaults, so growing
@@ -118,7 +123,38 @@ typedef struct {
      * the 736K this machine offers when nothing needs the window.
      */
     uint8_t vga;
+
+    /*
+     * Which card is fitted. See VIDEO_CARD_* below.
+     *
+     * tandy_enabled, hercules and vga above are what the rest of the
+     * firmware actually reads -- ram_limit, the A0000/B0000 windows, the
+     * mode-selection block in app/main.c, all of it keyed off those three
+     * independently, because that is how they grew, one card at a time.
+     * A real machine has one card, not some combination of the three, and
+     * offering them as separate toggles let a card be turned on that had
+     * no business being on with another one, or off in the one
+     * combination -- none of the three -- that meant plain CGA.
+     *
+     * Three choices, not four: a Tandy is a superset of a CGA, backward
+     * compatible with every CGA mode and adding its own on top, so
+     * plain-CGA software runs identically whichever one apply_boot_time_
+     * settings() picks and there is nothing a user would choose "plain
+     * CGA" over Tandy *for*. VIDEO_CARD_CGA_TANDY covers both, and
+     * settings.tandy_enabled comes out true whenever it is selected.
+     *
+     * This is the one field SETUP now edits, and apply_boot_time_settings()
+     * in app/main.c derives the other three from it before anything reads
+     * them, so nothing downstream had to change to know there is only
+     * ever one answer.
+     */
+    uint8_t video_card;
 } settings_s;
+
+// settings.video_card
+#define VIDEO_CARD_CGA_TANDY 0
+#define VIDEO_CARD_HERCULES  1
+#define VIDEO_CARD_VGA       2
 
 // settings.composite
 #define CGA_MONITOR_AUTO      0
