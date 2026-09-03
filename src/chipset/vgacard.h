@@ -80,4 +80,3 @@ void vgacard_get_frame(vgacard_frame_t *out);
 // mode change part-way down the screen cannot tear the geometry.
 extern vgacard_frame_t vga_frame;
 
-void vgacard_debug_dump(void);

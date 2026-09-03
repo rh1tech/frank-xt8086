@@ -722,6 +722,64 @@ void __time_critical_func() vga_scanline_dma() {
             }
             break;
         }
+        /*
+         * EGA, 16 colours out of four planes.
+         *
+         * Geometry comes from the card, not from the mode number: EGA
+         * modes are 320x200, 640x200 or 640x350, and software moves the
+         * line offset and start address as it pleases -- scrolling is
+         * done by moving the start address, so a fixed one would give a
+         * picture that never moves.
+         */
+        case EGA_320x200x16x4:
+        case EGA_640x200x16x4:
+        case EGA_640x350x16x4: {
+            const int height = vga_frame.height > 0 ? vga_frame.height : 200;
+
+            // 200-line modes are doubled into 400; 350 is scaled to fit.
+            const uint32_t src_line = (height <= 200)
+                    ? (uint32_t)y
+                    : ((uint32_t)y * 2u * (uint32_t)height) / 400u;
+            if (src_line >= (uint32_t)height) break;
+
+            const uint32_t stride = vga_frame.line_offset > 0
+                    ? (uint32_t)vga_frame.line_offset * 2u
+                    : (uint32_t)vga_frame.width / 8u;
+
+            uint32_t offset;
+            if (vga_frame.line_compare >= 0 && src_line >= (uint32_t)vga_frame.line_compare)
+                offset = (src_line - (uint32_t)vga_frame.line_compare) * stride;
+            else
+                offset = (uint32_t)vga_frame.start_addr + src_line * stride;
+            offset &= 0xFFFFu;
+
+            const uint32_t *__restrict src = vgacard_planes() + offset;
+            const uint8_t  *__restrict pal = vga_frame.palette;
+            const bool doubled = vga_frame.width <= 320;
+
+            int words = vga_frame.width / 8;
+            if (words > 80) words = 80;
+
+            for (int i = 0; i < words; i++) {
+                const uint32_t px = ega_pack8(src[i]);
+                const uint32_t c0 = pal[ px >> 28        ], c1 = pal[(px >> 24) & 0xF];
+                const uint32_t c2 = pal[(px >> 20) & 0xF], c3 = pal[(px >> 16) & 0xF];
+                const uint32_t c4 = pal[(px >> 12) & 0xF], c5 = pal[(px >>  8) & 0xF];
+                const uint32_t c6 = pal[(px >>  4) & 0xF], c7 = pal[ px        & 0xF];
+
+                if (doubled) {
+                    *scanline_output_32++ = c0 | c0 << 8 | c1 << 16 | c1 << 24;
+                    *scanline_output_32++ = c2 | c2 << 8 | c3 << 16 | c3 << 24;
+                    *scanline_output_32++ = c4 | c4 << 8 | c5 << 16 | c5 << 24;
+                    *scanline_output_32++ = c6 | c6 << 8 | c7 << 16 | c7 << 24;
+                } else {
+                    *scanline_output_32++ = c0 | c1 << 8 | c2 << 16 | c3 << 24;
+                    *scanline_output_32++ = c4 | c5 << 8 | c6 << 16 | c7 << 24;
+                }
+            }
+            break;
+        }
+
         case TGA_640x200x16: {
             const uint8_t *__restrict tga_row = &VIDEORAM[
                     (cga.tandy_crt_base + mc6845.vram_offset +

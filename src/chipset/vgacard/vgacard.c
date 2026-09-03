@@ -132,34 +132,26 @@ bool vgacard_set_bios_mode(const uint8_t mode) {
     int w = 0, h = 0;
     printf("[vga] mode %02X -> submode %d %dx%d\n",
            mode, vga_get_graphics_mode(vga, &w, &h), w, h);
-    {
-        vgacard_frame_t f; vgacard_get_frame(&f);
-        printf("[vga]  pal:");
-        for (int i = 0; i < 16; i++) printf(" %02X", f.palette[i]);
-        printf("  ar14=%02X ar0..7=", vga->ar[0x14]);
-        for (int i = 0; i < 8; i++) printf("%02X ", vga->ar[i]);
-        printf("\n");
-    }
     return true;
 }
 
 void vgacard_port_write(const uint16_t port, const uint8_t value) {
-    if (vga) vga_ioport_write(vga, port, value);
+    if (!vga) return;
+
+
+    vga_ioport_write(vga, port, value);
 }
 
 uint8_t vgacard_port_read(const uint16_t port) {
     return vga ? (uint8_t)vga_ioport_read(vga, port) : 0xFFu;
 }
 
-volatile uint32_t vgacard_writes, vgacard_reads;
 
 void vgacard_mem_write(const uint32_t addr, const uint8_t value) {
-    vgacard_writes++;
     if (vga) vga_mem_write(vga, addr, value);
 }
 
 uint8_t vgacard_mem_read(const uint32_t addr) {
-    vgacard_reads++;
     return vga ? vga_mem_read(vga, addr) : 0xFFu;
 }
 
@@ -194,30 +186,6 @@ void vgacard_get_frame(vgacard_frame_t *out) {
         out->palette[i] = pack_colour(pal16[i * 3], pal16[i * 3 + 1], pal16[i * 3 + 2]);
 }
 
-/*
- * A look at what the card is actually being asked to display: where the
- * CRTC points, and the first few words there. Printed a few times after
- * a mode set so the picture on screen can be checked against the memory
- * it is supposedly drawn from.
- */
-void vgacard_debug_dump(void) {
-    if (!vga) return;
-    const uint16_t start = vga_get_start_addr(vga);
-    const uint32_t *w = (const uint32_t *)vga_ram;
-    printf("[vga] start=%04X off=%d cr0C=%02X cr0D=%02X gr=", start,
-           vga_get_line_offset(vga), vga->cr[0x0C], vga->cr[0x0D]);
-    for (int i = 0; i < 9; i++) printf("%02X ", vga->gr[i]);
-    printf(" sr=");
-    for (int i = 0; i < 5; i++) printf("%02X ", vga->sr[i]);
-    printf("\n[vga]  @start:");
-    for (int i = 0; i < 6; i++) printf(" %08lX", (unsigned long)w[(start + i) & 0x7FFF]);
-    printf("\n[vga]  writes=%lu reads=%lu latch=%08lX",
-           (unsigned long)vgacard_writes, (unsigned long)vgacard_reads,
-           (unsigned long)vga->latch);
-    printf("\n[vga]  @0    :");
-    for (int i = 0; i < 6; i++) printf(" %08lX", (unsigned long)w[i]);
-    printf("\n");
-}
 
 bool vgacard_active(void) {
     if (!vga) return false;
