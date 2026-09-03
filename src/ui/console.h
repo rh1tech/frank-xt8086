@@ -239,6 +239,33 @@ __force_inline void process_ss3_sequence(char c) {
 __force_inline void process_ansi_sequence(const char *seq, int len) {
     if (len < 1) return;
 
+    /*
+     * ESC [ <n> K -- put scancode n on the wire, exactly as given.
+     *
+     * Uppercase because the CSI parser only ends a sequence on an
+     * uppercase letter or a tilde; a lowercase terminator is accumulated
+     * and thrown away when the buffer fills, silently.
+     *
+     * Everything else here sends a whole keystroke: press and release
+     * together. That is what typing wants and it is all the console could
+     * do, which means it could never hold one key down while pressing
+     * another -- no walking right and jumping, so no way to drive a game
+     * from a script and watch what the screen does.
+     *
+     * This sends one byte. Holding right is 224 then 77; letting go is
+     * 224 then 205. Two of them make a keystroke, and the caller decides
+     * when the second one happens.
+     */
+    if (seq[len - 1] == 'K') {
+        int code = 0;
+        for (int i = 0; i < len - 1; i++) {
+            if (seq[i] < '0' || seq[i] > '9') return;
+            code = code * 10 + (seq[i] - '0');
+        }
+        if (code > 0 && code < 256) handleScancode((uint8_t)code);
+        return;
+    }
+
     // Парсинг модификатора (формат: "1;2A" или "15;5~")
     uint8_t modifier = 1;
     int num = 0;
