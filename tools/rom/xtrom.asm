@@ -215,6 +215,8 @@ init:
 ; Everything else chains to the original handler untouched.
 ; ===========================================================================
 int10:
+        cmp     ah, 08h
+        je      .readchar
         cmp     ah, 12h
         je      .altselect
         cmp     ah, 00h
@@ -241,7 +243,7 @@ int10:
         cmp     al, 07h
         jne     .chain
         mov     al, 03h                 ; MDA text on a machine with one display
-        jmp     short .chain
+        jmp     .chain
 
 ; ---------------------------------------------------------------------------
 ; INT 10h AH=12h BL=10h - "return EGA information".
@@ -263,6 +265,48 @@ int10:
 ; Any other subfunction of 12h chains, so the BIOS keeps whatever it does
 ; provide.
 ; ---------------------------------------------------------------------------
+; ---------------------------------------------------------------------------
+; INT 10h AH=08h - read the character and attribute at the cursor.
+;
+; In a graphics mode this means matching the pixels under the cursor
+; against the font, character by character. GLaBIOS is a CGA BIOS and has
+; no idea what a four-plane mode is, so asked this while the card is in
+; 0Dh it goes somewhere of its own devising.
+;
+; Something asks it constantly. A trace of every INT 10h call Dangerous
+; Dave 2 makes is function 02h and function 08h alternating -- set the
+; cursor, read the cell -- thousands of times, and the machine stops
+; immediately after the last one. Whatever wants the screen read is
+; entitled to an answer; it is not entitled to take the machine with it.
+;
+; A blank in the standard attribute is what a real BIOS returns for an
+; empty cell, and it is what this answers for any mode the option ROM set
+; itself. Text modes chain, where the BIOS is right.
+; ---------------------------------------------------------------------------
+.readchar:
+        push    ds
+        push    bx
+        mov     bx, BDA_SEG
+        mov     ds, bx
+        mov     ah, [0049h]             ; the mode the BIOS thinks it is in
+        pop     bx
+        pop     ds
+
+        cmp     ah, 0Dh
+        je      .blankcell
+        cmp     ah, 0Eh
+        je      .blankcell
+        cmp     ah, 10h
+        je      .blankcell
+        cmp     ah, 13h
+        je      .blankcell
+        mov     ah, 08h                 ; not ours; put it back and chain
+        jmp     .chain
+
+.blankcell:
+        mov     ax, 0720h               ; space, light grey on black
+        iret
+
 .altselect:
         cmp     bl, 10h
         jne     .chain
