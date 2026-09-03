@@ -182,6 +182,23 @@ void vgacard_snap_frame(void) {
 bool vgacard_text_geometry(vgacard_text_t *out) {
     if (!vga) return false;
 
+    /*
+     * gr[0x06] bit 0 is the card's own answer to "text or graphics" --
+     * vga_refresh() in this same driver already keys off exactly this
+     * bit to pick graphic_mode. Without checking it here too, a CRTC
+     * programmed for a plausible-looking column/row count while the
+     * card is actually in graphics mode (as it briefly is during the
+     * option ROM's own POST, right after its banner, while it probes
+     * modes) was read as text: the character+attribute pairs this
+     * function's caller expects were live planar pixel data instead,
+     * rendered through the text path as whatever garbage that pixel
+     * data happened to decode to as glyphs and colours. On real
+     * hardware this window is too short to see; polled once a frame
+     * from a real 8086 slow enough to keep the option ROM busy for
+     * several frames, it was not.
+     */
+    if (vga->gr[0x06] & 1) return false;
+
     const uint8_t *cr = vga->cr;
     const uint8_t  ch = (uint8_t)((cr[0x09] & 0x1Fu) + 1u);
     if (ch == 0) return false;
