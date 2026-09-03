@@ -45,6 +45,25 @@ static volatile bool enabled = true;
 // Scratch for the OPL. 32-bit: EMU8950_LINEAR renders at that width.
 static int32_t opl_samples[AUDIO_BLOCK];
 
+// Where a fixed gain topped out (2.25x, measured peak ~14000): a small
+// margin under the 8-bit duty cycle's 127, leaving headroom for the
+// speaker's own contribution and the final hard clip's safety net.
+#define OPL_TARGET_PEAK  110
+
+// Floor under the compressor's envelope estimate: without one, silence
+// between notes drives the estimate toward zero and the resulting gain
+// toward infinity, turning the noise floor into audible hiss. 512 (the
+// original value here) let the gain reach ~55x at the floor, which is
+// not "quiet notes made audible", it is the noise floor and any faint
+// crosstalk between voices amplified into audible grain -- raised to
+// bound the floor gain to a much more conservative ~7x.
+#define OPL_ENVELOPE_FLOOR 4096
+
+// Running loudness estimate the compressor gains against. Persists
+// across blocks, same as the speaker's phase does, so gain does not
+// reset to maximum at the start of every 256-sample block.
+static int32_t opl_envelope = OPL_ENVELOPE_FLOOR;
+
 // --- speaker state, written from the bus interrupt -------------------------
 static volatile uint16_t spk_reload = 0;
 static volatile bool     spk_on     = false;
@@ -173,7 +192,57 @@ static void fill(const int which) {
     for (uint32_t i = 0; i < AUDIO_BLOCK; i++) {
         int32_t s = 0;
 
-        if (have_opl) s += opl_samples[i];
+        /*
+         * A fixed gain tuned to the loudest measured moment (x2.25, peak
+         * ~123/127) still read as quiet, because OPL music is mostly
+         * quieter than its own peaks -- a few loud transients and a lot
+         * of sustain well under them, the same reason a fixed-gain
+         * recording can look "loud enough" on a meter and still sound
+         * thin. What was missing was not headroom, it was raising the
+         * quiet parts to meet the ceiling a linear multiply already had
+         * to leave under 127 for the loud ones.
+         *
+         * This is an envelope-following compressor: a running estimate
+         * of how loud the signal has *been*, attacking fast (a few
+         * samples) so a sudden loud note does not sail through
+         * unclamped before the estimate catches up, releasing slowly
+         * (order ~100 ms) so it does not pump gain up and down inside a
+         * single note's decay. Each sample's gain is set from that
+         * estimate to land OPL_TARGET_PEAK at the top of its dynamic
+         * range, whatever that range currently is -- loud passages get
+         * roughly the old fixed gain, quiet ones get considerably more.
+         *
+         * OPL_ENVELOPE_FLOOR bounds the gain from above: without it,
+         * near silence between notes would drive the estimate toward
+         * zero and the resulting gain toward infinity, turning the
+         * noise floor into audible hiss between every note.
+         */
+        if (have_opl) {
+            const int32_t raw = opl_samples[i];
+            const int32_t mag = raw < 0 ? -raw : raw;
+
+            /*
+             * Attack was >>2 (~6 samples, ~136us) -- inside the period
+             * of every note the OPL2 can produce (even its highest
+             * output frequencies are under a few kHz), so the gain was
+             * being pulled up and down *within* single waveform cycles
+             * instead of just at note onsets. That does not read as
+             * pumping between notes, it reads as distortion on every
+             * note, which is what got reported. >>7 (~128 samples,
+             * ~2.9ms) still catches a note's onset before more than a
+             * couple of cycles clip, but no longer chases the waveform
+             * itself.
+             */
+            if (mag > opl_envelope) opl_envelope += (mag - opl_envelope) >> 7;  // attack, ~2.9 ms
+            else                    opl_envelope += (mag - opl_envelope) >> 13; // release, ~186 ms
+
+            if (opl_envelope < OPL_ENVELOPE_FLOOR) opl_envelope = OPL_ENVELOPE_FLOOR;
+
+            // Pre-shifted by the same 8 bits the combined mix loses just
+            // below, so this lands at OPL_TARGET_PEAK after that shift
+            // rather than at OPL_TARGET_PEAK/256 of it.
+            s += (raw * (OPL_TARGET_PEAK << 8)) / opl_envelope;
+        }
 
         if (beep) {
             // A quarter of full scale. The speaker was always the loudest

@@ -1721,7 +1721,24 @@ void OPL_calc_buffer_linear(OPL *opl, int32_t *buffer, uint32_t nsamples) {
 #else
         lfo_am_buffer[s] = (am_table[opl->am_phase_index] >> (opl->am_mode ? 0 : 2));
 #endif
-        buffer[sample_index]=0;
+        (void)sample_index;
+        /*
+         * The 18-slot loop below accumulates each of the 9 channels'
+         * carrier output into `buffer` with +=, on the assumption that
+         * it starts this block at zero -- that per-channel accumulate
+         * only makes sense against a clean base. The reset that used to
+         * do that lives further down, but it is wrapped in `#if DUMPO`,
+         * a debug-dump macro that is never defined, so in every real
+         * build only buffer[0] was ever cleared here and the other
+         * nsamples-1 samples carried the *previous* block's fully
+         * mixed output straight into this block's sum. Each block piled
+         * its own mix on top of the last one's, unbounded, which is
+         * exactly the shape of the reported bug: the first block or two
+         * still sound like the note underneath, and every block after
+         * keeps adding another full mix on top until it is nothing but
+         * noise.
+         */
+        memset(buffer, 0, nsamples * sizeof(int32_t));
     }
 
     for (i = 0; i < 18; i++) {
