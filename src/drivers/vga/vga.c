@@ -139,6 +139,25 @@ enum { VBLANK, VSYNC, IMAGE };
 static uint32_t *scanline_buffers[SCANLINE_BUFFERS] __attribute__((aligned(4))) = {0};
 static uint32_t scanline_buffer_mem[MAX_SCANLINE_BYTES * SCANLINE_BUFFERS] __attribute__((aligned(32)));
 
+/*
+ * The IMAGE slot's second physical buffer.
+ *
+ * scanline_buffers[IMAGE] is what the DMA control channel reads (the
+ * instant it fires, before this frame's CPU rendering has even started)
+ * to hand the data channel its source address for the line about to go
+ * out. With one physical buffer behind that slot, the CPU starts
+ * overwriting it for the *next* line the moment the handler runs -- the
+ * same memory the data channel has just begun transferring for *this*
+ * line. Most of a line's render finishes long before the data channel
+ * finishes reading it (8us of CPU against ~32us of DMA), so the race is
+ * narrow, but it is there: whichever words the data channel reaches
+ * before the CPU has gotten around to them come out as the stale
+ * previous line, a sparse, timing-dependent artifact. Alternating which
+ * physical buffer the slot names gives each one a full extra hop to
+ * drain before the CPU writes into it again.
+ */
+static uint32_t image_buffer_b[MAX_SCANLINE_BYTES / 4] __attribute__((aligned(32)));
+
 // --- DMA / PIO channels ---
 static uint sm;              // the VGA state machine, needed to retime it
 static int dma_ctrl_channel;
@@ -413,6 +432,18 @@ void __time_critical_func() vga_scanline_dma() {
         // is_even = 2;
         y >>= 1; // 200 logical lines
     }
+    // Alternate which physical buffer the IMAGE slot names -- see
+    // image_buffer_b's comment. Only lines that reach here actually
+    // render fresh pixels (the double_lines odd-line skip above returns
+    // before this point and simply lets the chain redisplay whatever the
+    // even line already wrote), so the toggle advances once per unique
+    // row, not once per hop.
+    static bool image_toggle;
+    image_toggle = !image_toggle;
+    scanline_buffers[IMAGE] = image_toggle
+            ? image_buffer_b
+            : &scanline_buffer_mem[IMAGE * (MAX_SCANLINE_BYTES / 4)];
+
     uint32_t **scanline_output_ptr = &scanline_buffers[IMAGE];
     uint32_t *__restrict scanline_output_32 = *scanline_output_ptr + picture_hshift_words;
 
@@ -442,10 +473,20 @@ void __time_critical_func() vga_scanline_dma() {
 
             //указатель откуда начать считывать символы
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            /*
+             * A VGA's CRTC decodes only 14 address bits for text mode --
+             * 8192 cells -- no matter how much memory sits behind it; the
+             * CGA path just below already wraps its byte offset at 0x3FFF
+             * for the same reason. Left unmasked here, scrollback that
+             * pushes start_addr + this row past that boundary walks the
+             * card's word-per-cell pointer into whatever memory follows
+             * the text buffer -- loaded font glyphs, graphics planes,
+             * whatever was last there -- and renders it as characters.
+             */
             const uint32_t *__restrict cells =
                     (vga_text_from_card && !vga_text_source)
-                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
-                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
+                        ? vgacard_planes() + (((mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)) & 0x1FFFu)
                         : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
@@ -535,10 +576,14 @@ void __time_critical_func() vga_scanline_dma() {
 
             //указатель откуда начать считывать символы
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
+            // See the 40-column case above: the card's own CRTC only ever
+            // decodes 14 address bits for text, so this offset has to
+            // wrap there too, the same boundary the CGA path already
+            // wraps its byte offset at just below.
             const uint32_t *__restrict cells =
                     (vga_text_from_card && !vga_text_source)
-                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
-                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
+                        ? vgacard_planes() + (((mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)) & 0x1FFFu)
                         : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[
                 (mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)) & 0x3FFF];
@@ -1046,6 +1091,7 @@ static void build_sync_templates(void) {
     // заготовки для строк с изображением (copy blank template)
     base_ptr = scanline_buffers[IMAGE];
     memcpy(base_ptr, scanline_buffers[VBLANK], vt.scanline_bytes);
+    memcpy(image_buffer_b, scanline_buffers[VBLANK], vt.scanline_bytes);
 }
 
 /*
