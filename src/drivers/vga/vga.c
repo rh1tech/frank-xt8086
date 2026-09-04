@@ -330,41 +330,8 @@ void __time_critical_func() vga_scanline_dma() {
      * Four lines before the wrap is still blanking, so a retry costs
      * nothing. It is where murm386 does it, for the same reason.
      */
-    if (unlikely(scanline == vt.total_scanlines - 4u)) {
-        if (vga_frame.submode) {
-            vgacard_snap_frame();
-        } else if (vga_text_from_card) {
-            // See vgacard.h: takes a fast local copy of the text window
-            // once a frame, at the same blanking point, so a scanline
-            // later in this same frame cannot land mid-way through a
-            // guest REP STOSW clearing it.
-            vgacard_snap_text();
-
-            /*
-             * Commit this frame's text geometry here, as one step,
-             * instead of the eight separate field writes app/main.c
-             * used to make directly to mc6845. Nothing stopped this
-             * same scanline interrupt -- same core, higher priority --
-             * from preempting main.c between any two of those writes
-             * and rendering a scanline off a mix of this frame's
-             * geometry and the last one's: not torn text data, a torn
-             * *address* -- this frame's row width paired with the
-             * previous frame's start address, or the reverse, reading
-             * from wherever that mismatched pair happened to land
-             * rather than anywhere a real frame ever pointed at.
-             */
-            vgacard_text_t t;
-            if (vgacard_pending_text_geometry(&t)) {
-                mc6845.r.h_displayed       = t.columns;
-                mc6845.r.v_displayed       = t.rows;
-                mc6845.r.max_scanline_addr = (uint8_t)(t.char_height - 1u);
-                mc6845.r.cursor_start      = t.cursor_start;
-                mc6845.r.cursor_end        = t.cursor_end;
-                mc6845.vram_offset         = (uint32_t)t.start_addr << 1;
-                mc6845.cursor_x            = t.cursor_addr % t.columns;
-                mc6845.cursor_y            = t.cursor_addr / t.columns;
-            }
-        }
+    if (unlikely(scanline == vt.total_scanlines - 4u) && vga_frame.submode) {
+        vgacard_snap_frame();
     }
 
     // If outside visible area - mark output as finished
@@ -477,8 +444,8 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
             const uint32_t *__restrict cells =
                     (vga_text_from_card && !vga_text_source)
-                        ? vgacard_text_planes() + (((mc6845.vram_offset >> 1)
-                                           + __fast_mul(screen_y, mc6845.r.h_displayed)) & VGACARD_TEXT_CELL_MASK)
+                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
                         : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)];
             __builtin_prefetch(text_buffer_line);
@@ -570,13 +537,12 @@ void __time_critical_func() vga_scanline_dma() {
             const uint8_t *__restrict src = vga_text_source ? vga_text_source : VIDEORAM;
             const uint32_t *__restrict cells =
                     (vga_text_from_card && !vga_text_source)
-                        ? vgacard_text_planes() + (((mc6845.vram_offset >> 1)
-                                           + __fast_mul(screen_y, mc6845.r.h_displayed)) & VGACARD_TEXT_CELL_MASK)
+                        ? vgacard_planes() + (mc6845.vram_offset >> 1)
+                                           + __fast_mul(screen_y, mc6845.r.h_displayed)
                         : NULL;
             const uint32_t *__restrict text_buffer_line = (uint32_t *) &src[
                 (mc6845.vram_offset + __fast_mul(screen_y, mc6845.r.h_displayed << 1)) & 0x3FFF];
             __builtin_prefetch(text_buffer_line);
-
             const bool is_cursor_line_active =
                     unlikely(mc6845.cursor_blink_state) &&
                     cursor_on_line(glyph_line, screen_y);

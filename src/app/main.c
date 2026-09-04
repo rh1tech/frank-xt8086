@@ -586,11 +586,14 @@ bool handleScancode(const uint8_t ps2scancode) {
                 vgacard_text_t t;
                 if (vgacard_text_geometry(&t)) {
                     vga_text_from_card = true;
-                    // Staged, not written directly: vgacard_snap_text()
-                    // commits it into mc6845 at the safe blanking point,
-                    // atomically, for the same reason vgacard_snap_frame()
-                    // exists. See vgacard.h.
-                    vgacard_stage_text_geometry(&t);
+                    mc6845.r.h_displayed       = t.columns;
+                    mc6845.r.v_displayed       = t.rows;
+                    mc6845.r.max_scanline_addr = (uint8_t)(t.char_height - 1u);
+                    mc6845.r.cursor_start      = t.cursor_start;
+                    mc6845.r.cursor_end        = t.cursor_end;
+                    mc6845.vram_offset         = (uint32_t)t.start_addr << 1;
+                    mc6845.cursor_x            = t.cursor_addr % t.columns;
+                    mc6845.cursor_y            = t.cursor_addr / t.columns;
                     // Re-select the video mode when the shape changes:
                     // nothing else will, because the video BIOS does not
                     // touch the CGA registers that normally trigger it.
