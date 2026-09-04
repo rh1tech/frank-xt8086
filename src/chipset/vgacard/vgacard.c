@@ -214,11 +214,34 @@ bool vgacard_text_geometry(vgacard_text_t *out) {
     // hand back a shape that would tear the screen up.
     if (cols < 20u || cols > 132u || rows < 10u || rows > 60u) return false;
 
+    /*
+     * Both of these are two registers, written as two separate OUTs, and
+     * this function is polled from the main loop rather than latched at
+     * a frame boundary the way vgacard_snap_frame() reads the same kind
+     * of pair for graphics mode. Caught between the guest's two writes --
+     * most often start_addr, on every scroll -- the half-old, half-new
+     * value it hands back can point anywhere in the text buffer, and the
+     * caller writes it straight into mc6845 unconditionally: every
+     * scanline drawn before the next main loop pass corrects it comes
+     * from that wrong address. Same retry-until-stable vgacard_snap_frame
+     * already uses.
+     */
+    uint8_t sa_hi = cr[0x0C], sa_lo = cr[0x0D];
+    for (int tries = 0; tries < 4 && sa_hi != cr[0x0C]; tries++) {
+        sa_hi = cr[0x0C];
+        sa_lo = cr[0x0D];
+    }
+    uint8_t ca_hi = cr[0x0E], ca_lo = cr[0x0F];
+    for (int tries = 0; tries < 4 && ca_hi != cr[0x0E]; tries++) {
+        ca_hi = cr[0x0E];
+        ca_lo = cr[0x0F];
+    }
+
     out->columns      = (uint8_t)cols;
     out->rows         = (uint8_t)rows;
     out->char_height  = ch;
-    out->start_addr   = (uint16_t)(cr[0x0C] << 8 | cr[0x0D]);
-    out->cursor_addr  = (uint16_t)(cr[0x0E] << 8 | cr[0x0F]);
+    out->start_addr   = (uint16_t)((uint16_t)sa_hi << 8 | sa_lo);
+    out->cursor_addr  = (uint16_t)((uint16_t)ca_hi << 8 | ca_lo);
     out->cursor_start = cr[0x0A];
     out->cursor_end   = cr[0x0B];
     return true;

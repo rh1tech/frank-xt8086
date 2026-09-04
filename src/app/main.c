@@ -579,13 +579,33 @@ bool handleScancode(const uint8_t ps2scancode) {
              * pointed, and every glyph wrong, because that stopped being
              * where DOS was writing.
              */
+            /*
+             * Settled to a local first, and only written to the real flag
+             * once, at the end -- not cleared here and conditionally set
+             * true below.
+             *
+             * vga_text_from_card is read by the scanline ISR, on this same
+             * core, to choose which memory a row of text comes from.
+             * Clearing it up front and re-setting it a few lines later
+             * left a real window, every single frame this block runs
+             * (60 times a second, not just once at boot): any scanline
+             * the ISR happens to render while this code is between the
+             * clear and the set reads through the plain CGA buffer
+             * instead of the card's planes -- text is a VGA mode, so
+             * that buffer is unused and stale, and the row comes out as
+             * whatever garbage was last left there. One assignment,
+             * after the value is already decided, means the flag only
+             * ever holds the value from before this pass or the value
+             * from after it -- never a false in between when nothing
+             * about the mode actually changed.
+             */
             extern bool vga_text_from_card;
-            vga_text_from_card = false;
+            bool text_from_card = false;
 
             if (settings.vga && vga_frame.submode == 0) {
                 vgacard_text_t t;
                 if (vgacard_text_geometry(&t)) {
-                    vga_text_from_card = true;
+                    text_from_card = true;
                     mc6845.r.h_displayed       = t.columns;
                     mc6845.r.v_displayed       = t.rows;
                     mc6845.r.max_scanline_addr = (uint8_t)(t.char_height - 1u);
@@ -601,6 +621,7 @@ bool handleScancode(const uint8_t ps2scancode) {
                     if (t.columns != last_cols) { last_cols = t.columns; cga.updated = true; }
                 }
             }
+            vga_text_from_card = text_from_card;
 
             /*
              * A change of card mode has to drive the selection below, and
